@@ -1,0 +1,28 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    # correctness
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gosimple
+    # security
+    - gosec
+    - bodyclose
+    - noctx
+    # style
+    - gofmt
+    - goimports
+    - misspell
+
+linters-settings:
+  gosec:
+    excludes:
+      - G104  # unhandled errors (covered by errcheck)
+
+issues:
+  exclude-use-default: false

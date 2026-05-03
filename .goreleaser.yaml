@@ -1,0 +1,47 @@
+version: 2
+
+builds:
+  - id: kubectl-k8i
+    main: ./cmd/kubectl-k8i
+    binary: kubectl-k8i
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/kubectl-k8i/pkg/version.Version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: kubectl-k8i
+    builds:
+      - kubectl-k8i
+    name_template: "kubectl-k8i_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^ci:"
+      - "^test:"
+
+release:
+  github:
+    owner: ViktorUJ
+    name: kubectl-k8i

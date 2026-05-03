@@ -1,0 +1,9 @@
+.git
+.kiro
+dist/
+/kubectl-k8i
+/kubectl-k8i.exe
+.idea
+.vscode
+*.swp
+*.swo

@@ -1,0 +1,78 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: k8i
+spec:
+  version: v0.1.7
+  homepage: https://github.com/ViktorUJ/kubectl-k8i
+  shortDescription: Display Kubernetes node resources with color-coded load indicators
+  description: |
+    kubectl-k8i shows a compact overview of all cluster nodes with CPU/memory
+    requests, limits, usage, capacity, and load percentage — color-coded for
+    quick visual assessment.
+
+    Key features:
+    - Color-coded load: green (≤60%), yellow (61–80%), red (>80%)
+    - Overcommit highlighting for CPU and memory
+    - Node metadata: instance type, capacity type, arch, zone, pool, nodeclaim, age, taints
+    - Autoscaler detection: Karpenter, Cluster Autoscaler, Spot.io
+    - Filter by labels, taints, or any node attribute
+    - Sort by any column (cpu_load, mem_use, age, etc.)
+    - Group nodes by taint sets
+    - Output formats: table (default), JSON, YAML
+    - Shell completion for all flags (kubectl 1.26+)
+    - Zero runtime dependencies — single static binary
+  caveats: |
+    kubectl-k8i shows a compact overview of cluster nodes: CPU/memory requests,
+    limits, usage, capacity, and color-coded load percentage. Supports filtering
+    by labels, taints, and attributes; sorting by any column; JSON/YAML output.
+
+    * Requires metrics-server for CPU/memory usage data (without it, usage shows as zero).
+    * To enable shell tab-completion (kubectl 1.26+):
+        kubectl k8i completion > kubectl_complete-k8i
+        chmod +x kubectl_complete-k8i
+        sudo mv kubectl_complete-k8i /usr/local/bin/
+      For details run: kubectl k8i completion --help
+  platforms:
+    - selector:
+        matchLabels:
+          os: linux
+          arch: amd64
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_linux_amd64.tar.gz
+      sha256: "4e9c173353f32e22ff4a31e79623c2877f470f0291c3599562832f2c4129ac98"
+      bin: kubectl-k8i
+    - selector:
+        matchLabels:
+          os: linux
+          arch: arm64
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_linux_arm64.tar.gz
+      sha256: "10159e531352cd1334a1e7b15d5e551a074597ce3bee018df65b50e94f733f97"
+      bin: kubectl-k8i
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: amd64
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_darwin_amd64.tar.gz
+      sha256: "25144bb0d0f8c39a113109e5d4b7f73e01be1e824446e2c856df0e2ebbf966e4"
+      bin: kubectl-k8i
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: arm64
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_darwin_arm64.tar.gz
+      sha256: "83ca5a2132a42afe3a19669c387f1e863283903fbc0651a8b387b3786040049d"
+      bin: kubectl-k8i
+    - selector:
+        matchLabels:
+          os: windows
+          arch: amd64
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_windows_amd64.zip
+      sha256: "290b4e411e08e4a29da419f5e4bc09e53334e8b734f4682ca109017a79fb08f9"
+      bin: kubectl-k8i.exe
+    - selector:
+        matchLabels:
+          os: windows
+          arch: arm64
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_windows_arm64.zip
+      sha256: "8d60e4f80e1af8fabf537f49c48eee9c78d3dcf1e1acb2d8fdd000d7685193a8"
+      bin: kubectl-k8i.exe

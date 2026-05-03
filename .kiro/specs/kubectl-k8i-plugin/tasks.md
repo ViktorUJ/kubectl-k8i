@@ -1,0 +1,393 @@
+# Implementation Plan: kubectl-k8i Plugin
+
+## Overview
+
+This plan implements the `kubectl-k8i` Go plugin — a cross-platform kubectl plugin that displays detailed Kubernetes node resource information in a tabular format with color-coded load percentages, node metadata, taints, and multiple output formats (table, JSON, YAML). The implementation follows a bottom-up approach: foundational packages first (model, parser, labels, age, color), then higher-level packages (filter, sort, taints, collector, render, output, terminal, retry, debug, cli), then integration/e2e/benchmark tests, and finally krew/README/LICENSE artifacts.
+
+All code lives under `kubectl-k8i/` with entry point at `cmd/kubectl-k8i/main.go` and packages under `pkg/`.
+
+## Tasks
+
+- [x] 1. Initialize Go module and project structure
+  - [x] 1.1 Create Go module and directory scaffold
+    - Initialize `go.mod` with module path `github.com/kubectl-k8i`
+    - Create directory structure: `cmd/kubectl-k8i/`, `pkg/{cli,collector,model,parser,labels,age,taints,filter,sort,color,output,render,terminal,retry,debug}/`, `test/{integration,e2e,benchmark}/`
+    - Create a minimal `cmd/kubectl-k8i/main.go` with a placeholder `main()` function
+    - Add core dependencies to `go.mod`: `github.com/spf13/cobra`, `k8s.io/client-go`, `k8s.io/apimachinery`, `k8s.io/metrics`, `golang.org/x/sync/errgroup`, `golang.org/x/term`, `gopkg.in/yaml.v3`
+    - Add test dependencies: `pgregory.net/rapid`, `github.com/stretchr/testify`
+    - Run `go mod tidy` to resolve all dependencies
+    - _Requirements: 11.1, 11.2, 11.5, 11.6, 12.1_
+
+- [x] 2. Implement data models (`pkg/model`)
+  - [x] 2.1 Create core data model types
+    - Define `NodeInfo` struct with all fields: identity, pod usage, CPU (cores + millicores), memory (GB), load percentages, metadata (EC2 ID, instance type, capacity type, architecture, zone, nodepool, nodeclaim, autoscaler), age, taints
+    - Define `RunConfig` struct with all CLI options: Context, Labels, Filter, Sort, Fargate, Color (*bool), Debug, GroupBy, Output, NoHeaders
+    - Define `PodAggregation` struct with PodCount, CPURequestMilli, CPULimitMilli, MemRequestGB, MemLimitGB
+    - Define `ClusterData` struct with Nodes, Metrics, Pods, Nodeclaims slices
+    - _Requirements: 6.9, 7.1, 10.1–10.16, 17.1_
+
+- [ ] 3. Implement Resource Parser (`pkg/parser`)
+  - [x] 3.1 Implement CPU and memory parsing functions
+    - Implement `ParseCPU(value string) float64` — handle "m" suffix (divide by 1000), whole cores, empty/null → 0
+    - Implement `ParseMemory(value string) float64` — handle "Ki" (÷1048576), "Mi" (÷1024), "Gi" (as-is), empty/null → 0
+    - Implement `FormatCPU(cores float64) string` and `FormatMemory(gb float64) string` for round-trip testing
+    - Implement `ParseCPUMillicores(value string) int64` for load calculation
+    - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4_
+  - [x]* 3.2 Write unit tests for Resource Parser
+    - Test CPU parsing: "500m"→0.5, "2"→2.0, ""→0.0, "0m"→0.0
+    - Test memory parsing: "1Gi"→1.0, "512Mi"→0.5, "1048576Ki"→1.0, ""→0.0
+    - Test edge cases: large values, zero values
+    - _Requirements: 15.1_
+  - [x]* 3.3 Write property test for CPU round-trip
+    - **Property 1: CPU parsing round-trip**
+    - Generate random valid CPU strings (integer with "m" suffix or whole number), verify parse→format→parse produces equivalent value within floating-point tolerance
+    - **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
+  - [x]* 3.4 Write property test for memory round-trip
+    - **Property 2: Memory parsing round-trip**
+    - Generate random valid memory strings (with "Ki", "Mi", or "Gi" suffix), verify parse→format→parse produces equivalent value within floating-point tolerance
+    - **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5**
+  - [x]* 3.5 Write property test for load percentage calculation
+    - **Property 19: Load percentage calculation**
+    - Generate random (usage, capacity) pairs, verify load = (usage*100)/capacity rounded to int; capacity=0 or usage=0 → 0
+    - **Validates: Requirements 16.1, 16.2, 16.3, 16.4**
+
+- [ ] 4. Implement Label Detector (`pkg/labels`)
+  - [x] 4.1 Implement label extraction and normalization functions
+    - Implement `ExtractMetadata(labels map[string]string, providerID string) NodeMetadata`
+    - Implement `ExtractCapacityType` with priority chain: `karpenter.sh/capacity-type` > `karpenter.k8s.aws/capacity-type` > `spotinst.io/node-lifecycle` > `eks.amazonaws.com/capacityType`
+    - Implement on-demand normalization: case-insensitive "on-demand"/"ondemand"/"ON_DEMAND" → "od"
+    - Implement `ExtractNodepool` with priority chain and EKS truncation to 15 chars
+    - Implement `ExtractEC2ID` with regex `i-[A-Za-z0-9-]+` from providerID
+    - Implement zone extraction (last 2 chars), architecture from `kubernetes.io/arch`, instance type from `node.kubernetes.io/instance-type`
+    - Implement nodeclaim name truncation to 20 chars
+    - Implement `DetectAutoscaler` with priority: karpenter > spotio > cas > x
+    - Default "x" for missing labels
+    - _Requirements: 3.1–3.12, 24.1–24.5_
+  - [x]* 4.2 Write unit tests for Label Detector
+    - Test all 4 priority chains with single/multiple labels
+    - Test on-demand normalization variants: "on-demand", "On-Demand", "ON_DEMAND", "ondemand"
+    - Test truncation at boundaries: 14, 15, 16 chars for EKS; 19, 20, 21 chars for nodeclaim
+    - Test missing labels → "x", EC2 ID extraction from various providerID formats
+    - Test autoscaler detection for each type and priority when multiple labels present
+    - _Requirements: 15.2_
+  - [x]* 4.3 Write property tests for Label Detector
+    - **Property 3: Capacity type label priority chain** — verify highest-priority key wins
+    - **Property 4: Nodepool label priority chain** — verify highest-priority key wins with EKS truncation
+    - **Property 5: Capacity type normalization** — verify all on-demand variants → "od"
+    - **Property 6: Label value truncation** — verify EKS ≤15 chars, nodeclaim ≤20 chars, shorter strings unchanged
+    - **Property 7: Zone suffix extraction** — verify last 2 chars for any zone string ≥2 chars
+    - **Property 8: EC2 instance ID regex extraction** — verify correct extraction or empty for non-matching
+    - **Property 34: Autoscaler detection priority chain** — verify karpenter > spotio > cas > x across all label combinations
+    - **Validates: Requirements 3.1–3.12, 24.1–24.5**
+
+- [ ] 5. Implement Age Formatter (`pkg/age`)
+  - [x] 5.1 Implement age formatting functions
+    - Implement `FormatAge(creationTime time.Time, now time.Time) string` — ≥24h: `{d}d{h}h`, ≥1h: `{h}h{m}m`, <1h: `{m}m`
+    - Implement `FormatAgeFromString(timestamp string) string` — parse ISO timestamp, return "x" for empty/null
+    - _Requirements: 4.1, 4.2, 4.3, 4.4_
+  - [x]* 5.2 Write unit tests for Age Formatter
+    - Test: 0m, 59m, 1h0m, 23h59m, 1d0h, 365d0h, zero time → "x"
+    - _Requirements: 15.3_
+  - [x]* 5.3 Write property test for age formatting
+    - **Property 9: Age formatting by duration range**
+    - Generate random non-negative durations, verify format matches pattern for each range and numeric components are consistent
+    - **Validates: Requirements 4.1, 4.2, 4.3**
+
+- [ ] 6. Implement Color Renderer (`pkg/color`)
+  - [x] 6.1 Implement color rendering functions
+    - Implement `ColorConfig` struct with `Enabled` field
+    - Implement `NewColorConfig(forceColor *bool) ColorConfig` with auto-detection
+    - Implement `ColorizeLoad(loadPercent int) string` — green ≤60, yellow 61–80, red >80
+    - Implement `DetectColorSupport() bool` for cross-platform terminal detection
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 11.3_
+  - [x]* 6.2 Write unit tests for Color Renderer
+    - Test boundary values: 0, 60, 61, 80, 81, 100
+    - Test colors disabled → no ANSI codes
+    - Test non-numeric input → as-is without color
+    - _Requirements: 15.4_
+  - [x]* 6.3 Write property tests for Color Renderer
+    - **Property 10: Color threshold correctness** — verify correct ANSI code for each range
+    - **Property 11: No ANSI codes when colors disabled** — verify no `\033[` in output
+    - **Property 20: Load percentage padding** — verify single-digit percentages have leading zero (%02d format)
+    - **Validates: Requirements 5.1–5.5, 16.5**
+
+- [x] 7. Checkpoint — Verify foundational packages
+  - Ensure all tests pass for model, parser, labels, age, and color packages. Ask the user if questions arise.
+
+- [ ] 8. Implement Taint Analyzer (`pkg/taints`)
+  - [x] 8.1 Implement taint analysis functions
+    - Implement `FormatTaints(taints []corev1.Taint) string` — `key=value:effect` format, comma-separated, "none" for empty
+    - Implement `TaintSetKey(taints []corev1.Taint) string` — canonical key for grouping
+    - Implement `MatchTaintFilter(taints []corev1.Taint, filterValue string) bool` — support `KEY` and `KEY=VALUE` formats
+    - Implement `SortKeyFromTaints(taints []corev1.Taint) string` — alphabetically sorted taint keys concatenated
+    - Implement `GroupByTaints(nodes []NodeInfo) [][]NodeInfo` — group by identical taint sets, stable order
+    - _Requirements: 17.1–17.7_
+  - [x]* 8.2 Write unit tests for Taint Analyzer
+    - Test single taint, multiple taints, no taints, taint with empty value
+    - Test filter by key, filter by key=value
+    - Test sort key generation, grouping correctness
+    - _Requirements: 15.9_
+  - [x]* 8.3 Write property tests for Taint Analyzer
+    - **Property 21: Taint display format** — verify format for any taint list, "none" for empty
+    - **Property 22: Taint filter matching** — verify KEY and KEY=VALUE matching semantics
+    - **Property 23: Taint sort key ordering** — verify lexicographic ordering of concatenated sorted keys
+    - **Property 24: Taint grouping correctness** — verify same group = identical taints, different groups = different taints
+    - **Validates: Requirements 17.1–17.7**
+
+- [ ] 9. Implement Filter Engine (`pkg/filter`)
+  - [x] 9.1 Implement node filtering functions
+    - Implement `FilterNodes(nodes []NodeInfo, attribute, value string) ([]NodeInfo, error)`
+    - Support attributes: ec2_type, instance_type, arch, zone, pool, nodeclaim, taint, autoscaler
+    - Return error for unsupported attribute (list supported attributes) and invalid format
+    - Implement Fargate node hiding (names starting with "fargate-")
+    - _Requirements: 8.1–8.4, 10.10, 24.6_
+  - [x]* 9.2 Write unit tests for Filter Engine
+    - Test each of 8 attributes with matching/non-matching values
+    - Test unsupported attribute error, invalid format error
+    - Test Fargate hiding
+    - _Requirements: 15.5_
+  - [x]* 9.3 Write property tests for Filter Engine
+    - **Property 13: Filter returns only matching nodes** — every node in result matches, every excluded node doesn't
+    - **Property 17: Fargate nodes hidden by default** — no "fargate-" prefixed names when Fargate=false
+    - **Property 18: Filter-then-sort order preserves filter invariant** — result is filtered AND sorted
+    - **Validates: Requirements 8.1–8.4, 10.10, 13.1–13.3, 24.6**
+
+- [ ] 10. Implement Sort Engine (`pkg/sort`)
+  - [x] 10.1 Implement node sorting functions
+    - Implement `SortNodes(nodes []NodeInfo, column, direction string) error`
+    - Support 20 columns including autoscaler; support "asc" and "desc" directions
+    - Numeric comparison for numeric columns, lexicographic for text columns
+    - Default sort: pool=asc
+    - Return error for unsupported column and invalid format
+    - _Requirements: 9.1–9.8, 24.7_
+  - [x]* 10.2 Write unit tests for Sort Engine
+    - Test each of 20 columns in both directions
+    - Test numeric vs lexicographic: 9 < 10 numerically, "9" > "10" lexicographically
+    - Test default sort, unsupported column error, invalid format error
+    - _Requirements: 15.6_
+  - [x]* 10.3 Write property tests for Sort Engine
+    - **Property 14: Sort asc is reverse of sort desc** — ascending then reversing = descending
+    - **Property 15: Numeric sort uses numeric comparison** — each element ≤ next for numeric columns
+    - **Property 16: Lexicographic sort uses string comparison** — each element ≤ next for text columns
+    - **Validates: Requirements 9.1–9.8, 24.7**
+
+- [ ] 11. Implement Retry Wrapper (`pkg/retry`)
+  - [x] 11.1 Implement retry logic with exponential backoff
+    - Implement `RetryConfig` struct with MaxRetries (5), InitialBackoff (100ms), MaxBackoff (1600ms), JitterFraction (0.5)
+    - Implement `DefaultRetryConfig() RetryConfig`
+    - Implement `IsTransientError(err error) bool` — true for network timeouts, connection refused, 429, 5xx; false for 401, 403, 404
+    - Implement `WithRetry(ctx context.Context, config RetryConfig, operation string, fn func() error) error` — exponential backoff with jitter, max 5 retries
+    - Implement `CalculateBackoff(config RetryConfig, attempt int) time.Duration` — initialBackoff * 2^attempt, capped at maxBackoff, with jitter
+    - _Requirements: 14.6, 14.7, 14.8, 23.1–23.8_
+  - [x]* 11.2 Write unit tests for Retry Wrapper
+    - Test transient error triggers retry (429, 500, 502, 503, 504, timeout, connection refused)
+    - Test permanent error does not trigger retry (401, 403, 404)
+    - Test max 5 retries then returns error with retry count
+    - Test backoff doubles each attempt, jitter within bounds
+    - Test successful retry returns nil, context cancellation stops retries
+    - _Requirements: 15.23_
+  - [x]* 11.3 Write property tests for Retry Wrapper
+    - **Property 32: Transient vs permanent error classification** — verify IsTransientError correctness
+    - **Property 33: Exponential backoff with jitter bounds** — verify backoff in [base, base*(1+jitter)] range
+    - **Validates: Requirements 23.1–23.8**
+
+- [ ] 12. Implement Debug Logger (`pkg/debug`)
+  - [x] 12.1 Implement structured debug logging
+    - Implement `DebugLogger` struct with enabled flag and writer (defaults to os.Stderr)
+    - Implement `NewDebugLogger(enabled bool) *DebugLogger`
+    - Implement `LogAPICall`, `LogRetryAttempt`, `LogDataProcessing`, `LogFilterSort`, `LogTerminalWidth`, `LogOutputFormat`
+    - All methods are no-ops when disabled; format: `timestamp DEBUG category key=value ...`
+    - _Requirements: 14.5_
+  - [x]* 12.2 Write unit tests for Debug Logger
+    - Test each log method outputs correct format with timestamp, level, category, key-value pairs
+    - Test disabled logger produces no output
+    - Test all output goes to the configured writer
+    - _Requirements: 15.25_
+
+- [x] 13. Checkpoint — Verify mid-level packages
+  - Ensure all tests pass for taints, filter, sort, retry, and debug packages. Ask the user if questions arise.
+
+- [ ] 14. Implement Terminal Detector (`pkg/terminal`)
+  - [x] 14.1 Implement terminal width detection
+    - Implement `GetTerminalWidth(defaultWidth int) int` using `golang.org/x/term` — cross-platform (POSIX + Windows)
+    - Implement `IsTerminal(fd uintptr) bool`
+    - Return defaultWidth (200) when detection fails (piped output)
+    - _Requirements: 22.1–22.4, 11.3_
+  - [x]* 14.2 Write unit tests for Terminal Detector
+    - Test returns positive integer for terminal fd
+    - Test returns default width (200) for non-terminal fd
+    - Test IsTerminal returns correct bool
+    - _Requirements: 15.22 (cross-platform terminal tests)_
+
+- [ ] 15. Implement Data Collector (`pkg/collector`)
+  - [x] 15.1 Implement concurrent data collection
+    - Implement `Collector` struct with clientset, metricsClient, dynamicClient, labelSelector, progressReporter, retryConfig, debugLogger
+    - Implement `Collect(ctx context.Context) (*ClusterData, error)` using `errgroup` with 4 goroutines
+    - Each API call wrapped with `retry.WithRetry` for transient error handling
+    - Fetch nodes (with optional label selector), metrics, running pods (field selector `status.phase=Running`), nodeclaims (non-fatal if CRD missing)
+    - Implement aggregation: build `podsByNode`, `metricsByNode`, `nodeclaimByNode` maps for O(1) lookups
+    - Filter only Ready nodes (condition status = True)
+    - Enrich nodes with labels, parser, age, taints to produce `[]NodeInfo`
+    - Progress reporting to stderr during collection
+    - _Requirements: 6.1–6.10, 18.1–18.6, 19.1–19.6_
+  - [x]* 15.2 Write unit tests for Data Collector
+    - Test aggregation logic with fake data
+    - Test Ready node filtering
+    - Test nodeclaim CRD missing → "x" values
+    - Test metrics unavailable → zero usage values
+    - _Requirements: 15.11, 15.12_
+  - [x]* 15.3 Write property test for Ready node filtering
+    - **Property 12: Only Ready nodes processed** — verify output contains only nodes with Ready=True
+    - **Validates: Requirements 6.6**
+
+- [ ] 16. Implement Output Formatters (`pkg/output`)
+  - [x] 16.1 Implement JSON and YAML output formatters
+    - Define `Formatter` interface with `Format(w io.Writer, nodes []NodeInfo) error`
+    - Implement `NewFormatter(format OutputFormat) (Formatter, error)` factory
+    - Define `NodeOutput` struct with json/yaml struct tags for serialization
+    - Implement `JSONFormatter` using `encoding/json` with indented output
+    - Implement `YAMLFormatter` using `gopkg.in/yaml.v3`
+    - Implement `ToNodeOutput` and `ToNodeOutputList` conversion functions
+    - No ANSI codes in JSON/YAML output; no headers/timestamps/annotations
+    - _Requirements: 21.1–21.9, 11.7_
+  - [x]* 16.2 Write unit tests for Output Formatters
+    - Test JSON output is valid JSON, YAML output is valid YAML
+    - Test empty node list produces empty array/list
+    - Test NodeOutput struct tags match expected field names
+    - Test JSON/YAML output contains no ANSI codes
+    - _Requirements: 15.13 (output format tests)_
+  - [x]* 16.3 Write property tests for Output Formatters
+    - **Property 25: JSON output round-trip** — serialize then deserialize produces equivalent data
+    - **Property 26: YAML output round-trip** — serialize then deserialize produces equivalent data
+    - **Property 27: Output format data equivalence** — JSON and YAML contain same nodes and field values
+    - **Property 28: Structured output integrity** — no ANSI codes, untruncated field values
+    - **Validates: Requirements 21.2–21.8**
+
+- [ ] 17. Implement Table Renderer (`pkg/render`)
+  - [x] 17.1 Implement table rendering with terminal adaptation
+    - Implement `RenderTable(w io.Writer, nodes []NodeInfo, config RenderConfig)` — header, separator, data rows, timestamp, filter/sort annotations
+    - Implement `RenderConfig` struct with Color, Filter, Sort, GroupByTaint, Timestamp, TermWidth, NoHeaders
+    - Implement `TruncateToFit(s string, maxLen int) string` — append "…" if truncated
+    - Implement `CalculateColumnWidths(termWidth int) ColumnWidths` — fixed numeric columns, shrinkable text columns
+    - When NoHeaders=true: output only data rows (no header, separator, timestamp, annotations)
+    - When GroupByTaint=true: insert group separators between taint groups
+    - Display "no nodes match filter" message when filtered result is empty
+    - Color-code load percentages using ColorConfig
+    - _Requirements: 7.1–7.12, 16.5, 22.5–22.7_
+  - [x]* 17.2 Write unit tests for Table Renderer
+    - Test full-width rendering, truncated columns, ellipsis, numeric columns never truncated
+    - Test no-headers mode outputs only data rows
+    - Test group separators for taint grouping
+    - Test empty node list message
+    - _Requirements: 15.13 (output format tests)_
+  - [x]* 17.3 Write property tests for Table Renderer
+    - **Property 29: Table output fits terminal width** — every line ≤ terminal width
+    - **Property 30: Truncation appends ellipsis** — truncated strings end with "…", shorter strings unchanged
+    - **Property 31: Numeric columns never truncated** — numeric values identical to originals
+    - **Property 35: No-headers mode suppresses all non-data output** — output lines = number of nodes
+    - **Validates: Requirements 7.8–7.12, 22.5–22.7**
+
+- [ ] 18. Implement CLI Parser (`pkg/cli`)
+  - [x] 18.1 Implement cobra command and flag parsing
+    - Implement `NewRootCommand() *cobra.Command` with all flags: --context, --labels, --filter, --sort, --fargate, --color, --debug, --group-by, --output/-o, --no-headers, --help
+    - Implement `ParseFilter(filter string) (string, string, error)` — validate `attribute=value` format
+    - Implement `ParseSort(sort string) (string, string, error)` — validate `column=direction` format
+    - Implement `ValidateOutputFormat(format string) error` — validate table/json/yaml
+    - Wire the run function: parse flags → build RunConfig → create collector → collect data → enrich → filter → sort → group → format output
+    - Error messages to stderr, normal output to stdout
+    - Exit code 0 on success, non-zero on failure
+    - _Requirements: 10.1–10.16, 12.5, 12.6, 13.1–13.3_
+  - [x]* 18.2 Write unit tests for CLI Parser
+    - Test each flag individually and in combination
+    - Test missing values, unknown flags, --help output
+    - Test --output table/json/yaml, -o short alias, unsupported format error
+    - Test --no-headers sets NoHeaders=true, default is false
+    - Test default output format is table, default sort is pool=asc
+    - _Requirements: 15.7_
+
+- [ ] 19. Implement Progress Reporter (`pkg/collector` — progress callback)
+  - [x] 19.1 Implement progress indicator on stderr
+    - Implement progress callback function that displays collection progress on stderr
+    - Suppress progress for JSON/YAML output formats
+    - _Requirements: 6.7_
+
+- [ ] 20. Wire entry point (`cmd/kubectl-k8i/main.go`)
+  - [x] 20.1 Implement main.go with full pipeline
+    - Create cobra root command via `cli.NewRootCommand()`
+    - Wire the complete pipeline: CLI → Collector (with retry + debug) → Enrich → Filter → Sort → Group → Output (table/json/yaml)
+    - Handle kubeconfig loading and context selection
+    - Set up signal handling for graceful cancellation
+    - _Requirements: 12.1, 12.5, 12.6, 12.7_
+
+- [x] 21. Checkpoint — Verify all packages compile and unit tests pass
+  - Run `go build ./...` and `go test ./pkg/...` to verify all packages compile and tests pass. Ask the user if questions arise.
+
+- [ ] 22. Integration tests (`test/integration/`)
+  - [x]* 22.1 Write integration tests with fake clientset
+    - Create realistic cluster scenario with fake nodes (Karpenter/Spotinst/EKS labels, various taints), fake pods with resource requests/limits, fake metrics, fake nodeclaims
+    - Test full pipeline: data collection → enrichment → filter → sort → render
+    - Test label priority chains in full pipeline context
+    - Test each filter attribute (ec2_type, instance_type, arch, zone, pool, nodeclaim, taint, autoscaler) with mixed cluster
+    - Test each sort column with full output verification
+    - Test taint grouping with group separators
+    - Test Fargate hiding/showing
+    - Test metrics unavailable → zero usage values
+    - Test nodeclaim CRD missing → "x" values
+    - Test empty cluster → appropriate message
+    - Test complete output format (header, separator, data rows, timestamp, annotations)
+    - Test retry integration: fake API returns transient errors then succeeds
+    - Test autoscaler detection, filtering, and sorting in full pipeline
+    - Test debug mode outputs structured logs to stderr
+    - Tag all tests with `//go:build integration`
+    - _Requirements: 15.11–15.14, 20.1–20.15_
+
+- [ ] 23. End-to-end output tests (`test/e2e/`)
+  - [x]* 23.1 Write e2e output tests against golden files
+    - Test standard output with mixed node types
+    - Test output with --filter ec2_type=spot, --sort cpu_load=desc, --group-by taint, --fargate
+    - Test --color false produces no ANSI codes
+    - Test no matching filter results message
+    - Test --output json (valid JSON, no ANSI, no headers)
+    - Test --output yaml (valid YAML, no ANSI, no headers)
+    - Test -o json short alias
+    - Test table output at narrow terminal widths (80, 60 columns)
+    - Test JSON/YAML unaffected by terminal width
+    - Test --filter autoscaler=karpenter, --sort autoscaler=asc
+    - Test JSON/YAML includes autoscaler field
+    - Test --debug true produces structured debug logs on stderr
+    - Test --no-headers outputs only data rows
+    - Test --no-headers --filter combination
+    - _Requirements: 15.13, 15.14, 15.17–15.22_
+
+- [ ] 24. Benchmark tests (`test/benchmark/`)
+  - [x]* 24.1 Write benchmark tests for scalability
+    - `BenchmarkProcess1000Nodes` — generate 1000 fake nodes with 10 pods each (10000 pods), measure full pipeline
+    - `BenchmarkResourceAggregation` — measure per-node resource aggregation with map lookups
+    - `BenchmarkFilterAndSort` — measure filter + sort on 1000 nodes
+    - `BenchmarkTableRender` — measure table rendering for 1000 rows
+    - _Requirements: 15.15, 15.16, 19.1_
+
+- [x] 25. Checkpoint — Verify all tests pass
+  - Run `go test ./pkg/...`, `go test -tags=integration ./test/integration/...`, `go test ./test/e2e/...`, `go test -bench=. ./test/benchmark/...`. Ask the user if questions arise.
+
+- [x] 26. Create project artifacts
+  - [x] 26.1 Create krew manifest, LICENSE, and README
+    - Create `krew-manifest.yaml` with plugin name, version, description, homepage, platform binaries (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64, windows/arm64)
+    - Create `LICENSE` file (Apache 2.0 or MIT)
+    - Create `README.md` with installation instructions (krew + manual), usage examples (all flags), feature description, output format examples (table, JSON, YAML), build instructions
+    - _Requirements: 12.2, 12.3, 12.4_
+
+- [x] 27. Final checkpoint — Ensure everything compiles and all tests pass
+  - Run `go build ./cmd/kubectl-k8i/` to verify the binary builds successfully. Run full test suite. Ask the user if questions arise.
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for faster MVP
+- Each task references specific requirements for traceability
+- Checkpoints ensure incremental validation
+- Property tests validate the 35 universal correctness properties from the design document
+- Unit tests validate specific examples and edge cases
+- Integration tests use client-go fake clientset (build tag: `integration`)
+- E2E tests verify complete output against golden files
+- Benchmark tests verify scalability for 1000 nodes / 10000 pods
+- All code uses Go with client-go, cobra, rapid, testify, yaml.v3, golang.org/x/term

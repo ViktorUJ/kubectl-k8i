@@ -1,0 +1,30 @@
+# Binary
+/kubectl-k8i
+/kubectl-k8i.exe
+
+# GoReleaser output
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage.out
+coverage.html
+
+# Go build cache (usually in $HOME, but just in case)
+*.test
+*.prof
+
+# Temporary files
+*.tmp
+*.bak
+*.log

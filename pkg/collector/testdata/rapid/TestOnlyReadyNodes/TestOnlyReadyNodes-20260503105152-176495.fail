@@ -1,0 +1,477 @@
+# 2026/05/03 10:51:52.538279 [TestOnlyReadyNodes] [rapid] draw numNodes: 18
+# 2026/05/03 10:51:52.538287 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538292 [TestOnlyReadyNodes] [rapid] draw name: "node-qp1j"
+# 2026/05/03 10:51:52.538295 [TestOnlyReadyNodes] [rapid] draw ready: false
+# 2026/05/03 10:51:52.538298 [TestOnlyReadyNodes] [rapid] draw name: "node-hs3"
+# 2026/05/03 10:51:52.538300 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538303 [TestOnlyReadyNodes] [rapid] draw name: "node-zz7nez"
+# 2026/05/03 10:51:52.538307 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538310 [TestOnlyReadyNodes] [rapid] draw name: "node-fsx43"
+# 2026/05/03 10:51:52.538313 [TestOnlyReadyNodes] [rapid] draw ready: false
+# 2026/05/03 10:51:52.538315 [TestOnlyReadyNodes] [rapid] draw name: "node-305"
+# 2026/05/03 10:51:52.538318 [TestOnlyReadyNodes] [rapid] draw ready: false
+# 2026/05/03 10:51:52.538321 [TestOnlyReadyNodes] [rapid] draw name: "node-z52ic"
+# 2026/05/03 10:51:52.538327 [TestOnlyReadyNodes] [rapid] draw ready: false
+# 2026/05/03 10:51:52.538330 [TestOnlyReadyNodes] [rapid] draw name: "node-ksmx61a5"
+# 2026/05/03 10:51:52.538332 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538335 [TestOnlyReadyNodes] [rapid] draw name: "node-130f"
+# 2026/05/03 10:51:52.538337 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538339 [TestOnlyReadyNodes] [rapid] draw name: "node-305"
+# 2026/05/03 10:51:52.538342 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538367 [TestOnlyReadyNodes] [rapid] draw name: "node-0kg"
+# 2026/05/03 10:51:52.538370 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538372 [TestOnlyReadyNodes] [rapid] draw name: "node-tfj"
+# 2026/05/03 10:51:52.538374 [TestOnlyReadyNodes] [rapid] draw ready: false
+# 2026/05/03 10:51:52.538376 [TestOnlyReadyNodes] [rapid] draw name: "node-1sa1"
+# 2026/05/03 10:51:52.538379 [TestOnlyReadyNodes] [rapid] draw ready: false
+# 2026/05/03 10:51:52.538381 [TestOnlyReadyNodes] [rapid] draw name: "node-llc"
+# 2026/05/03 10:51:52.538383 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538387 [TestOnlyReadyNodes] [rapid] draw name: "node-wez9w521"
+# 2026/05/03 10:51:52.538388 [TestOnlyReadyNodes] [rapid] draw ready: false
+# 2026/05/03 10:51:52.538391 [TestOnlyReadyNodes] [rapid] draw name: "node-qw3x0"
+# 2026/05/03 10:51:52.538393 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538395 [TestOnlyReadyNodes] [rapid] draw name: "node-10q"
+# 2026/05/03 10:51:52.538396 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538400 [TestOnlyReadyNodes] [rapid] draw name: "node-2fcbcdm2"
+# 2026/05/03 10:51:52.538402 [TestOnlyReadyNodes] [rapid] draw ready: true
+# 2026/05/03 10:51:52.538406 [TestOnlyReadyNodes] [rapid] draw name: "node-412r03g"
+# 2026/05/03 10:51:52.538724 [TestOnlyReadyNodes] 
+# 	Error Trace:	/home/viktor/work/kubectl-k8i/pkg/collector/collector_property_test.go:75
+# 	            				/home/viktor/go/pkg/mod/pgregory.net/rapid@v1.3.0/engine.go:458
+# 	            				/home/viktor/go/pkg/mod/pgregory.net/rapid@v1.3.0/engine.go:467
+# 	            				/home/viktor/go/pkg/mod/pgregory.net/rapid@v1.3.0/engine.go:292
+# 	            				/home/viktor/go/pkg/mod/pgregory.net/rapid@v1.3.0/engine.go:207
+# 	            				/home/viktor/work/kubectl-k8i/pkg/collector/collector_property_test.go:18
+# 	            				/home/viktor/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.0.linux-amd64/src/runtime/asm_amd64.s:1771
+# 	Error:      	Not equal: 
+# 	            	expected: "True"
+# 	            	actual  : "False"
+# 	            	
+# 	            	Diff:
+# 	            	--- Expected
+# 	            	+++ Actual
+# 	            	@@ -1,2 +1,2 @@
+# 	            	-(v1.ConditionStatus) (len=4) "True"
+# 	            	+(v1.ConditionStatus) (len=5) "False"
+# 	            	 
+# 	Test:       	TestOnlyReadyNodes
+# 	Messages:   	node node-305 in output must have Ready=True
+# 
+v0.4.8#16254181459708711562
+0x2b96ee45d8a68
+0x119e17b8969648
+0x17
+0x12
+0x1
+0x0
+0xa6f01452f24e5
+0x0
+0x18db4c7eeda030
+0x25
+0x37
+0x3d
+0x1a
+0x1c05809d23e8cf
+0x0
+0x1b6d5497c9a395
+0x19
+0x1c4005da57d89a
+0x0
+0x1b5e5a625646c4
+0x2e
+0x1
+0xb7278514a02c0
+0x0
+0xc06feac9dafe3
+0x13
+0x5a1a8c2b16ef0
+0x0
+0x0
+0x6916803d57e19
+0x0
+0x174ef7a2adc9a2
+0x2c
+0x11
+0x5f375816c0501
+0x0
+0x16a03c21527300
+0x1c
+0x48a18fff83f07
+0x0
+0x4cc7db8b5e68f
+0x3
+0x5accfe0746cc3
+0x1
+0x0
+0x1d24f1f13b95e6
+0x0
+0x1fedb9c51e19fb
+0xffffffffffffffff
+0x15cca7592e1cf6
+0x0
+0x1fb89ff5525318
+0xffffffffffffffff
+0x15ad69e59a119
+0x0
+0x12134cbef548d1
+0x7
+0x1caaf7e32fcb10
+0x0
+0x159d313ab4b46e
+0x17
+0x136beeb454aeef
+0x0
+0xf776b4f074ada
+0x34
+0x2d
+0xe
+0x117afec0307ffe
+0x0
+0x1f96d0b9793921
+0xffffffffffffffff
+0x9068216e05e8c
+0x1
+0x0
+0x170f2a612d5d9a
+0x0
+0xdd19360ec5d04
+0xf
+0x1b9de8831ee4d3
+0x0
+0x1468819c5c312d
+0x2c
+0x1c
+0x141c636bc55a45
+0x0
+0x13e9eb52b3695a
+0x21
+0xf06fc65611f67
+0x0
+0xaa408d7d5cc15
+0x4
+0x1bef17b8672932
+0x0
+0x5def10b245ac3
+0x3
+0x24208b21bcf19
+0x0
+0x0
+0x13bc1860dc9b68
+0x0
+0x8290dfe3e0e06
+0x3
+0xdcf1fb8c1d47e
+0x0
+0x458fb653f77ab
+0x0
+0x1fffc917d99c47
+0x0
+0x7ffc898f09b80
+0x5
+0x6d9b30610acf8
+0x0
+0x0
+0x12ed3e8538a97a
+0x0
+0x102a5cdf510db8
+0x23
+0x1e5c2f7399ca85
+0x0
+0xb3fca32765ce4
+0x5
+0xbbfe27afa0e69
+0x0
+0x7fdca2b390791
+0x2
+0xb638368daed48
+0x0
+0x1be88001ac277f
+0x12
+0xe28477cb3eb6f
+0x0
+0x1369b9c8581d39
+0xc
+0x7211e7fbaa045
+0x0
+0x0
+0x1719a5a59fcc65
+0x0
+0x19760492fce7ef
+0x14
+0x1dcbe4a34b5b89
+0x0
+0xc5f0ec73f7002
+0x1c
+0x133c07ee4e7ce5
+0x0
+0x165cfad330c27f
+0x2c
+0x16
+0x1ed0f89478b26f
+0x0
+0x12ba7a519598d6
+0x3e
+0x21
+0x1c2b05761cf3a5
+0x0
+0x1a758e9f02e19e
+0x6
+0xe5306da0f6cd7
+0x0
+0x1ac75853a277e6
+0x1
+0x1f6da2af2a00b5
+0x0
+0x152f97e9d9de92
+0xa
+0xebcdab14d317a
+0x0
+0x73edae6295637
+0x5
+0xb05f307c200ec
+0x1
+0x0
+0x167eb2c4594775
+0x0
+0x1836681c1f6e2
+0x1
+0x1c7d26ec396f3f
+0x0
+0x748f7f044c84c
+0x3
+0x1d3e14b3931b54
+0x0
+0x78b8abea1ac5c
+0x0
+0x14858ed3d53fda
+0x0
+0xf93bdf7240a1d
+0x35
+0xf
+0x88dbad2621a2
+0x1
+0x0
+0x973ca0749a43a
+0x0
+0x71746dbb9a8f0
+0x3
+0x1a00be4ed63214
+0x0
+0x9ece5ca14cde
+0x0
+0xbc5e038eb0ed
+0x0
+0xc21cfc46ecd96
+0x5
+0x81c8abfd65d48
+0x1
+0x0
+0x1a9de17b2beda6
+0x0
+0x1930e741b4ec1
+0x0
+0x1ad7c6f54b8d0
+0x0
+0xcb305b72eeb16
+0x14
+0xcbbe978b94670
+0x0
+0xcf42f0e6bef9e
+0x10
+0x1ffdc655822d9
+0x1
+0x0
+0xd3eacf7d7c3
+0x0
+0x18aa039f33ba90
+0x1d
+0x13da7bdc262369
+0x0
+0xf4b14b578eb4a
+0xf
+0xab32f022c16f5
+0x0
+0x172d4d3d3ff1f0
+0x13
+0x4c0bcbd9fd172
+0x0
+0x0
+0x1f5bd154094900
+0x0
+0x11f3f02bc35f3
+0x1
+0x1700e098e70538
+0x0
+0x104e583ad521c8
+0x1c
+0x1a04707dbde6fd
+0x0
+0xae509cb1d5c6d
+0xa
+0x1dfa29bf12f7dd
+0x0
+0x15d27021b55d95
+0x1
+0x8c38b733482d7
+0x0
+0x0
+0x1c8c33c2b5912a
+0x0
+0x185f8fb719397d
+0x15
+0x91cce2ec2605c
+0x0
+0x1a24d97918198a
+0x15
+0x4b68d36ba40b1
+0x0
+0xb6151b85f9a6a
+0xc
+0x67cb6f67e2b04
+0x1
+0x0
+0x12fb4465a174a6
+0x0
+0x1f2ab8452d5646
+0x27
+0x30
+0x20
+0x10a3597059817
+0x0
+0x18a55b9f3698d4
+0x26
+0xe
+0x10f95208f1ed36
+0x0
+0x1f89e8f9b01822
+0xffffffffffffffff
+0x173a84e849cc63
+0x0
+0xe84971ba59ba5
+0x9
+0xff096d1f1d364
+0x0
+0x1cd030592ef92b
+0x20
+0x9363a31d90953
+0x0
+0x1de4f299599a17
+0x5
+0x1617b0bf2aa238
+0x0
+0x6363511ffec28
+0x2
+0xfaae27b3a789a
+0x0
+0x46f916b18ef2b
+0x1
+0x1e90bb19a75ce3
+0x0
+0x0
+0x1678d67298618
+0x0
+0xf79ea478db8c9
+0x1a
+0x409d54f0c0518
+0x0
+0x1cfefb3d11f9ab
+0x20
+0x24d68a5532267
+0x0
+0x649b4823dc457
+0x3
+0xf023d3c70369b
+0x0
+0x1bc1378deef641
+0x21
+0x185277918ac5a5
+0x0
+0x495b94e0a37cb
+0x0
+0x16d0078c242a8
+0x1
+0x0
+0x18a0c2b1b0f818
+0x0
+0x34ff64769ab
+0x1
+0x1b07992579deb3
+0x0
+0x921fc9004cec7
+0x0
+0xf78da09d57885
+0x0
+0x1bdc59ef9ad314
+0x3c
+0x28
+0x1a
+0x8eb3c9ce310cf
+0x1
+0x0
+0x1056b8209e2959
+0x0
+0x12d4b0842e1996
+0x2
+0x11813288914cfc
+0x0
+0x1af1f73004bd0a
+0x2a
+0xf
+0xba1b40188eecb
+0x0
+0x1e36f49d05a5f7
+0xc
+0xe78d1078bc1dc
+0x0
+0x186a9c3bcb4888
+0xb
+0x1c8602e26c2ca3
+0x0
+0xe3c4ec92bfc55
+0xc
+0x1da11bafdbed73
+0x0
+0x10dc56a4487a12
+0xd
+0xa34aba00b2843
+0x0
+0x14dcdcd1386153
+0x3e
+0x16
+0x185cbda40e1af8
+0x0
+0x3afdadf9828ee
+0x2
+0x170ed637f5b03f
+0x1
+0x0
+0x78c7df4329ec2
+0x0
+0x8351b28050e8a
+0x4
+0x14472160c4c29d
+0x0
+0x3547ded404b4f
+0x1
+0xd170a03628653
+0x0
+0x4f469908ebb72
+0x2
+0x15d331578a920f
+0x0
+0x14d0040f6ea9a4
+0x1b
+0x1c345a5b2c08b7
+0x0
+0x19cc02b089368
+0x0
+0x1a77f198dbc8d8
+0x0
+0x17b96188a3e1f1
+0x3
+0x15ff01295f94c9
+0x0
+0x1233a0a65e924c
+0x39
+0x10
+0x3848664673f4

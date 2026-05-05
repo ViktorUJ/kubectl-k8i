@@ -3,7 +3,7 @@ kind: Plugin
 metadata:
   name: k8i
 spec:
-  version: v0.1.7
+  version: v0.1.0
   homepage: https://github.com/ViktorUJ/kubectl-k8i
   shortDescription: Display Kubernetes node resources with color-coded load indicators
   description: |
@@ -38,41 +38,41 @@ spec:
         matchLabels:
           os: linux
           arch: amd64
-      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_linux_amd64.tar.gz
-      sha256: "4e9c173353f32e22ff4a31e79623c2877f470f0291c3599562832f2c4129ac98"
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.0/kubectl-k8i_linux_amd64.tar.gz
+      sha256: "274605c4288db8ec06a83fb72ea7b00a0c26b17884396d7d4fbb3adaed2bc941"
       bin: kubectl-k8i
     - selector:
         matchLabels:
           os: linux
           arch: arm64
-      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_linux_arm64.tar.gz
-      sha256: "10159e531352cd1334a1e7b15d5e551a074597ce3bee018df65b50e94f733f97"
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.0/kubectl-k8i_linux_arm64.tar.gz
+      sha256: "43b6c62a03de6a501bcde97da54cbf9fdf870165f8a94b4a903eb4635cfac66e"
       bin: kubectl-k8i
     - selector:
         matchLabels:
           os: darwin
           arch: amd64
-      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_darwin_amd64.tar.gz
-      sha256: "25144bb0d0f8c39a113109e5d4b7f73e01be1e824446e2c856df0e2ebbf966e4"
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.0/kubectl-k8i_darwin_amd64.tar.gz
+      sha256: "09a910bb7a177f9ddabd00400342b97eee604b28b0562d2728410c60c2ebe43c"
       bin: kubectl-k8i
     - selector:
         matchLabels:
           os: darwin
           arch: arm64
-      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_darwin_arm64.tar.gz
-      sha256: "83ca5a2132a42afe3a19669c387f1e863283903fbc0651a8b387b3786040049d"
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.0/kubectl-k8i_darwin_arm64.tar.gz
+      sha256: "bb32dc757e9b24cf2b0a0e99da92a8e2a8ea0903f11c1da8f5f1c317f8de34f3"
       bin: kubectl-k8i
     - selector:
         matchLabels:
           os: windows
           arch: amd64
-      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_windows_amd64.zip
-      sha256: "290b4e411e08e4a29da419f5e4bc09e53334e8b734f4682ca109017a79fb08f9"
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.0/kubectl-k8i_windows_amd64.zip
+      sha256: "4c2e9d09e520f802b0ae6f2f831b338bc58aa0f5f00beea56f4c1ff05e038c1e"
       bin: kubectl-k8i.exe
     - selector:
         matchLabels:
           os: windows
           arch: arm64
-      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.7/kubectl-k8i_windows_arm64.zip
-      sha256: "8d60e4f80e1af8fabf537f49c48eee9c78d3dcf1e1acb2d8fdd000d7685193a8"
+      uri: https://github.com/ViktorUJ/kubectl-k8i/releases/download/v0.1.0/kubectl-k8i_windows_arm64.zip
+      sha256: "be548e01c12edf38f393ea9abb36091f1dd54884ac30b7e81a804aa11a912d96"
       bin: kubectl-k8i.exe

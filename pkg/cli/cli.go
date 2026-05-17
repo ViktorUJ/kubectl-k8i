@@ -30,17 +30,17 @@ import (
 // NewRootCommand creates the cobra command with all flags for kubectl-k8i.
 func NewRootCommand() *cobra.Command {
 	var (
-		contextFlag    string
-		labelsFlag     string
-		taintsFlag     string
-		filterFlag     string
-		sortFlag       string
-		fargateFlag    bool
-		colorFlag      string
-		debugFlag      bool
-		groupByFlag    string
-		outputFlag     string
-		noHeaders      bool
+		contextFlag     string
+		labelsFlag      string
+		taintsFlag      string
+		filterFlag      string
+		sortFlag        string
+		fargateFlag     bool
+		colorFlag       string
+		debugFlag       bool
+		groupByFlag     string
+		outputFlag      string
+		noHeaders       bool
 		deploymentFlag  string
 		statefulSetFlag string
 		namespaceFlag   string

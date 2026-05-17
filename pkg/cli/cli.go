@@ -30,17 +30,20 @@ import (
 // NewRootCommand creates the cobra command with all flags for kubectl-k8i.
 func NewRootCommand() *cobra.Command {
 	var (
-		contextFlag string
-		labelsFlag  string
-		taintsFlag  string
-		filterFlag  string
-		sortFlag    string
-		fargateFlag bool
-		colorFlag   string
-		debugFlag   bool
-		groupByFlag string
-		outputFlag  string
-		noHeaders   bool
+		contextFlag    string
+		labelsFlag     string
+		taintsFlag     string
+		filterFlag     string
+		sortFlag       string
+		fargateFlag    bool
+		colorFlag      string
+		debugFlag      bool
+		groupByFlag    string
+		outputFlag     string
+		noHeaders      bool
+		deploymentFlag  string
+		statefulSetFlag string
+		namespaceFlag   string
 	)
 
 	cmd := &cobra.Command{
@@ -148,16 +151,19 @@ Shell completion:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Build RunConfig from flags.
 			cfg := model.RunConfig{
-				Context:   contextFlag,
-				Labels:    labelsFlag,
-				Taints:    taintsFlag,
-				Filter:    filterFlag,
-				Sort:      sortFlag,
-				Fargate:   fargateFlag,
-				Debug:     debugFlag,
-				GroupBy:   groupByFlag,
-				Output:    outputFlag,
-				NoHeaders: noHeaders,
+				Context:     contextFlag,
+				Labels:      labelsFlag,
+				Taints:      taintsFlag,
+				Filter:      filterFlag,
+				Sort:        sortFlag,
+				Fargate:     fargateFlag,
+				Debug:       debugFlag,
+				GroupBy:     groupByFlag,
+				Output:      outputFlag,
+				NoHeaders:   noHeaders,
+				Deployment:  deploymentFlag,
+				StatefulSet: statefulSetFlag,
+				Namespace:   namespaceFlag,
 			}
 
 			// Handle --color flag: "true" → &true, "false" → &false, "auto"/empty → nil.
@@ -189,6 +195,9 @@ Shell completion:
 	cmd.Flags().StringVar(&groupByFlag, "group-by", "", "Group nodes by attribute (currently only 'taint')")
 	cmd.Flags().StringVarP(&outputFlag, "output", "o", "table", "Output format: table, json, yaml")
 	cmd.Flags().BoolVar(&noHeaders, "no-headers", false, "Suppress table header, separator, timestamp, and annotations")
+	cmd.Flags().StringVar(&deploymentFlag, "deployment", "", "Show only nodes running pods of this deployment (format: namespace/name)")
+	cmd.Flags().StringVar(&statefulSetFlag, "statefulset", "", "Show only nodes running pods of this statefulset (format: namespace/name)")
+	cmd.Flags().StringVar(&namespaceFlag, "namespace", "", "Show only nodes running pods from this namespace")
 
 	// Register dynamic completion functions for flags.
 	_ = cmd.RegisterFlagCompletionFunc("labels", completeLabelSelectors)
@@ -196,6 +205,9 @@ Shell completion:
 	_ = cmd.RegisterFlagCompletionFunc("context", completeContexts)
 	_ = cmd.RegisterFlagCompletionFunc("filter", completeFilterValues)
 	_ = cmd.RegisterFlagCompletionFunc("sort", completeSortValues)
+	_ = cmd.RegisterFlagCompletionFunc("deployment", completeDeployments)
+	_ = cmd.RegisterFlagCompletionFunc("statefulset", completeStatefulSets)
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completeNamespaces)
 	_ = cmd.RegisterFlagCompletionFunc("output", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"table", "json", "yaml"}, cobra.ShellCompDirectiveNoFileComp
 	})
@@ -210,6 +222,24 @@ Shell completion:
 	cmd.AddCommand(newCompletionCmd())
 
 	return cmd
+}
+
+// ParseDeployment validates and parses a deployment string in "namespace/name" format.
+// Returns (namespace, name, error).
+func ParseDeployment(deploymentStr string) (string, string, error) {
+	idx := strings.Index(deploymentStr, "/")
+	if idx < 0 {
+		return "", "", fmt.Errorf("invalid deployment format %q: expected namespace/name", deploymentStr)
+	}
+	namespace := deploymentStr[:idx]
+	name := deploymentStr[idx+1:]
+	if namespace == "" {
+		return "", "", fmt.Errorf("invalid deployment format %q: namespace cannot be empty", deploymentStr)
+	}
+	if name == "" {
+		return "", "", fmt.Errorf("invalid deployment format %q: name cannot be empty", deploymentStr)
+	}
+	return namespace, name, nil
 }
 
 // ParseFilter validates and parses a filter string in "attribute=value" format.
@@ -383,6 +413,65 @@ func runCommand(ctx context.Context, cfg model.RunConfig) error {
 	nodes := c.EnrichNodes(data, now)
 
 	debugLogger.LogDataProcessing("enriched_nodes", len(nodes))
+
+	// Filter nodes by deployment if --deployment is set.
+	if cfg.Deployment != "" {
+		deplNamespace, deplName, err := ParseDeployment(cfg.Deployment)
+		if err != nil {
+			return err
+		}
+		nodeNames, err := c.NodeNamesForDeployment(ctx, deplNamespace, deplName)
+		if err != nil {
+			return fmt.Errorf("deployment filter failed: %w", err)
+		}
+		inputCount := len(nodes)
+		filtered := nodes[:0]
+		for _, n := range nodes {
+			if _, ok := nodeNames[n.Name]; ok {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
+		debugLogger.LogFilterSort("deployment", cfg.Deployment, inputCount, len(nodes))
+	}
+
+	// Filter nodes by statefulset if --statefulset is set.
+	if cfg.StatefulSet != "" {
+		stsNamespace, stsName, err := ParseDeployment(cfg.StatefulSet)
+		if err != nil {
+			return fmt.Errorf("invalid --statefulset value: %w", err)
+		}
+		nodeNames, err := c.NodeNamesForStatefulSet(ctx, stsNamespace, stsName)
+		if err != nil {
+			return fmt.Errorf("statefulset filter failed: %w", err)
+		}
+		inputCount := len(nodes)
+		filtered := nodes[:0]
+		for _, n := range nodes {
+			if _, ok := nodeNames[n.Name]; ok {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
+		debugLogger.LogFilterSort("statefulset", cfg.StatefulSet, inputCount, len(nodes))
+	}
+
+	// Filter nodes by namespace if --namespace is set.
+	if cfg.Namespace != "" {
+		nodeNames, err := c.NodeNamesForNamespace(ctx, cfg.Namespace)
+		if err != nil {
+			return fmt.Errorf("namespace filter failed: %w", err)
+		}
+		inputCount := len(nodes)
+		filtered := nodes[:0]
+		for _, n := range nodes {
+			if _, ok := nodeNames[n.Name]; ok {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
+		debugLogger.LogFilterSort("namespace", cfg.Namespace, inputCount, len(nodes))
+	}
 
 	// Hide Fargate nodes unless --fargate is set.
 	if !cfg.Fargate {
@@ -609,28 +698,112 @@ func completeSortValues(cmd *cobra.Command, args []string, toComplete string) ([
 
 // getNodeListForCompletion fetches the node list from the cluster for completion purposes.
 func getNodeListForCompletion(cmd *cobra.Command) ([]corev1.Node, error) {
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	configOverrides := &clientcmd.ConfigOverrides{}
-
-	// Use --context flag if provided.
-	if ctx, _ := cmd.Flags().GetString("context"); ctx != "" {
-		configOverrides.CurrentContext = ctx
-	}
-
-	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-	restConfig, err := kubeConfig.ClientConfig()
+	clientset, err := getClientsetForCompletion(cmd)
 	if err != nil {
 		return nil, err
 	}
-
-	clientset, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return nil, err
-	}
-
 	nodeList, err := clientset.CoreV1().Nodes().List(cmd.Context(), metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
 	return nodeList.Items, nil
+}
+
+// completeDeployments returns available deployments in "namespace/name" format.
+func completeDeployments(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	clientset, err := getClientsetForCompletion(cmd)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	// Determine which namespace to search in based on what the user has typed so far.
+	// If toComplete contains "/" — user already typed a namespace, list deployments in it.
+	// Otherwise — list all namespaces and suggest "namespace/" prefixes.
+	if idx := strings.Index(toComplete, "/"); idx >= 0 {
+		namespace := toComplete[:idx]
+		deplList, err := clientset.AppsV1().Deployments(namespace).List(cmd.Context(), metav1.ListOptions{})
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		results := make([]string, 0, len(deplList.Items))
+		for _, d := range deplList.Items {
+			results = append(results, namespace+"/"+d.Name)
+		}
+		return results, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	// No "/" yet — suggest namespace/ prefixes.
+	nsList, err := clientset.CoreV1().Namespaces().List(cmd.Context(), metav1.ListOptions{})
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	results := make([]string, 0, len(nsList.Items))
+	for _, ns := range nsList.Items {
+		results = append(results, ns.Name+"/")
+	}
+	return results, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
+}
+
+// completeStatefulSets returns available statefulsets in "namespace/name" format.
+func completeStatefulSets(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	clientset, err := getClientsetForCompletion(cmd)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	if idx := strings.Index(toComplete, "/"); idx >= 0 {
+		namespace := toComplete[:idx]
+		stsList, err := clientset.AppsV1().StatefulSets(namespace).List(cmd.Context(), metav1.ListOptions{})
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		results := make([]string, 0, len(stsList.Items))
+		for _, s := range stsList.Items {
+			results = append(results, namespace+"/"+s.Name)
+		}
+		return results, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	// No "/" yet — suggest namespace/ prefixes.
+	nsList, err := clientset.CoreV1().Namespaces().List(cmd.Context(), metav1.ListOptions{})
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	results := make([]string, 0, len(nsList.Items))
+	for _, ns := range nsList.Items {
+		results = append(results, ns.Name+"/")
+	}
+	return results, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
+}
+
+// completeNamespaces returns available namespace names from the cluster.
+func completeNamespaces(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	clientset, err := getClientsetForCompletion(cmd)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	nsList, err := clientset.CoreV1().Namespaces().List(cmd.Context(), metav1.ListOptions{})
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	results := make([]string, 0, len(nsList.Items))
+	for _, ns := range nsList.Items {
+		results = append(results, ns.Name)
+	}
+	return results, cobra.ShellCompDirectiveNoFileComp
+}
+
+// getClientsetForCompletion builds a kubernetes clientset for completion functions.
+func getClientsetForCompletion(cmd *cobra.Command) (kubernetes.Interface, error) {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{}
+	if ctx, _ := cmd.Flags().GetString("context"); ctx != "" {
+		configOverrides.CurrentContext = ctx
+	}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+	restConfig, err := kubeConfig.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	return kubernetes.NewForConfig(restConfig)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/kubectl-k8i/pkg/age"
@@ -245,7 +246,102 @@ func (c *Collector) reportProgress(step, total int, message string) {
 	}
 }
 
-// buildPodsByNode iterates pods and aggregates per-node resource totals.
+// NodeNamesForDeployment returns the set of node names that have at least one
+// running pod belonging to the given deployment (namespace/name).
+// It resolves the deployment → ReplicaSet → Pod chain using label selectors.
+func (c *Collector) NodeNamesForDeployment(ctx context.Context, namespace, name string) (map[string]struct{}, error) {
+	// Fetch the deployment to get its pod template label selector.
+	deployment, err := c.clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get deployment %s/%s: %w", namespace, name, err)
+	}
+
+	// Build a label selector string from the deployment's selector.
+	selector := deployment.Spec.Selector
+	if selector == nil || len(selector.MatchLabels) == 0 {
+		return nil, fmt.Errorf("deployment %s/%s has no label selector", namespace, name)
+	}
+
+	parts := make([]string, 0, len(selector.MatchLabels))
+	for k, v := range selector.MatchLabels {
+		parts = append(parts, k+"="+v)
+	}
+	labelSel := strings.Join(parts, ",")
+
+	// List running pods matching the deployment's selector in its namespace.
+	podList, err := c.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSel,
+		FieldSelector: "status.phase=Running",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods for deployment %s/%s: %w", namespace, name, err)
+	}
+
+	nodeNames := make(map[string]struct{}, len(podList.Items))
+	for i := range podList.Items {
+		if n := podList.Items[i].Spec.NodeName; n != "" {
+			nodeNames[n] = struct{}{}
+		}
+	}
+	return nodeNames, nil
+}
+
+// NodeNamesForStatefulSet returns the set of node names that have at least one
+// running pod belonging to the given statefulset (namespace/name).
+func (c *Collector) NodeNamesForStatefulSet(ctx context.Context, namespace, name string) (map[string]struct{}, error) {
+	// Fetch the statefulset to get its pod template label selector.
+	sts, err := c.clientset.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get statefulset %s/%s: %w", namespace, name, err)
+	}
+
+	selector := sts.Spec.Selector
+	if selector == nil || len(selector.MatchLabels) == 0 {
+		return nil, fmt.Errorf("statefulset %s/%s has no label selector", namespace, name)
+	}
+
+	parts := make([]string, 0, len(selector.MatchLabels))
+	for k, v := range selector.MatchLabels {
+		parts = append(parts, k+"="+v)
+	}
+	labelSel := strings.Join(parts, ",")
+
+	podList, err := c.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSel,
+		FieldSelector: "status.phase=Running",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods for statefulset %s/%s: %w", namespace, name, err)
+	}
+
+	nodeNames := make(map[string]struct{}, len(podList.Items))
+	for i := range podList.Items {
+		if n := podList.Items[i].Spec.NodeName; n != "" {
+			nodeNames[n] = struct{}{}
+		}
+	}
+	return nodeNames, nil
+}
+
+// NodeNamesForNamespace returns the set of node names that have at least one
+// running pod in the given namespace.
+func (c *Collector) NodeNamesForNamespace(ctx context.Context, namespace string) (map[string]struct{}, error) {
+	podList, err := c.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "status.phase=Running",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods in namespace %s: %w", namespace, err)
+	}
+
+	nodeNames := make(map[string]struct{}, len(podList.Items))
+	for i := range podList.Items {
+		if n := podList.Items[i].Spec.NodeName; n != "" {
+			nodeNames[n] = struct{}{}
+		}
+	}
+	return nodeNames, nil
+}
+
 func buildPodsByNode(pods []corev1.Pod) map[string]*model.PodAggregation {
 	result := make(map[string]*model.PodAggregation)
 	for i := range pods {

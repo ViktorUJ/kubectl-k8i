@@ -59,17 +59,20 @@ type NodeInfo struct {
 
 // RunConfig holds all parsed CLI options.
 type RunConfig struct {
-	Context   string // --context
-	Labels    string // --labels
-	Taints    string // --taints (taint key or key=value filter)
-	Filter    string // --filter (attribute=value)
-	Sort      string // --sort (column=direction)
-	Fargate   bool   // --fargate
-	Color     *bool  // --color (nil = auto-detect)
-	Debug     bool   // --debug
-	GroupBy   string // --group-by (currently only "taint")
-	Output    string // --output / -o (table, json, yaml; default: table)
-	NoHeaders bool   // --no-headers: suppress header, separator, timestamp, annotations
+	Context    string // --context
+	Labels     string // --labels
+	Taints     string // --taints (taint key or key=value filter)
+	Filter     string // --filter (attribute=value)
+	Sort       string // --sort (column=direction)
+	Fargate    bool   // --fargate
+	Color      *bool  // --color (nil = auto-detect)
+	Debug      bool   // --debug
+	GroupBy    string // --group-by (currently only "taint")
+	Output     string // --output / -o (table, json, yaml; default: table)
+	NoHeaders  bool   // --no-headers: suppress header, separator, timestamp, annotations
+	Deployment  string // --deployment namespace/name: show only nodes running pods of this deployment
+	StatefulSet string // --statefulset namespace/name: show only nodes running pods of this statefulset
+	Namespace   string // --namespace name: show only nodes running pods from this namespace
 }
 
 // PodAggregation holds per-node pod resource totals.

@@ -44,6 +44,7 @@ func NewRootCommand() *cobra.Command {
 		deploymentFlag  string
 		statefulSetFlag string
 		namespaceFlag   string
+		daemonSetFlag   string
 	)
 
 	cmd := &cobra.Command{
@@ -164,6 +165,7 @@ Shell completion:
 				Deployment:  deploymentFlag,
 				StatefulSet: statefulSetFlag,
 				Namespace:   namespaceFlag,
+				DaemonSet:   daemonSetFlag,
 			}
 
 			// Handle --color flag: "true" → &true, "false" → &false, "auto"/empty → nil.
@@ -198,6 +200,7 @@ Shell completion:
 	cmd.Flags().StringVar(&deploymentFlag, "deployment", "", "Show only nodes running pods of this deployment (format: namespace/name)")
 	cmd.Flags().StringVar(&statefulSetFlag, "statefulset", "", "Show only nodes running pods of this statefulset (format: namespace/name)")
 	cmd.Flags().StringVar(&namespaceFlag, "namespace", "", "Show only nodes running pods from this namespace")
+	cmd.Flags().StringVar(&daemonSetFlag, "daemonset", "", "Show only nodes running pods of this daemonset (format: namespace/name)")
 
 	// Register dynamic completion functions for flags.
 	_ = cmd.RegisterFlagCompletionFunc("labels", completeLabelSelectors)
@@ -208,6 +211,7 @@ Shell completion:
 	_ = cmd.RegisterFlagCompletionFunc("deployment", completeDeployments)
 	_ = cmd.RegisterFlagCompletionFunc("statefulset", completeStatefulSets)
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completeNamespaces)
+	_ = cmd.RegisterFlagCompletionFunc("daemonset", completeDaemonSets)
 	_ = cmd.RegisterFlagCompletionFunc("output", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"table", "json", "yaml"}, cobra.ShellCompDirectiveNoFileComp
 	})
@@ -471,6 +475,27 @@ func runCommand(ctx context.Context, cfg model.RunConfig) error {
 		}
 		nodes = filtered
 		debugLogger.LogFilterSort("namespace", cfg.Namespace, inputCount, len(nodes))
+	}
+
+	// Filter nodes by daemonset if --daemonset is set.
+	if cfg.DaemonSet != "" {
+		dsNamespace, dsName, err := ParseDeployment(cfg.DaemonSet)
+		if err != nil {
+			return fmt.Errorf("invalid --daemonset value: %w", err)
+		}
+		nodeNames, err := c.NodeNamesForDaemonSet(ctx, dsNamespace, dsName)
+		if err != nil {
+			return fmt.Errorf("daemonset filter failed: %w", err)
+		}
+		inputCount := len(nodes)
+		filtered := nodes[:0]
+		for _, n := range nodes {
+			if _, ok := nodeNames[n.Name]; ok {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
+		debugLogger.LogFilterSort("daemonset", cfg.DaemonSet, inputCount, len(nodes))
 	}
 
 	// Hide Fargate nodes unless --fargate is set.
@@ -765,6 +790,37 @@ func completeStatefulSets(cmd *cobra.Command, args []string, toComplete string) 
 	}
 
 	// No "/" yet — suggest namespace/ prefixes.
+	nsList, err := clientset.CoreV1().Namespaces().List(cmd.Context(), metav1.ListOptions{})
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	results := make([]string, 0, len(nsList.Items))
+	for _, ns := range nsList.Items {
+		results = append(results, ns.Name+"/")
+	}
+	return results, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
+}
+
+// completeDaemonSets returns available daemonsets in "namespace/name" format.
+func completeDaemonSets(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	clientset, err := getClientsetForCompletion(cmd)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	if idx := strings.Index(toComplete, "/"); idx >= 0 {
+		namespace := toComplete[:idx]
+		dsList, err := clientset.AppsV1().DaemonSets(namespace).List(cmd.Context(), metav1.ListOptions{})
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		results := make([]string, 0, len(dsList.Items))
+		for _, d := range dsList.Items {
+			results = append(results, namespace+"/"+d.Name)
+		}
+		return results, cobra.ShellCompDirectiveNoFileComp
+	}
+
 	nsList, err := clientset.CoreV1().Namespaces().List(cmd.Context(), metav1.ListOptions{})
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp

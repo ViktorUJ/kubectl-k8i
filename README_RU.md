@@ -106,6 +106,10 @@ kubectl k8i [флаги]
 | `--taints KEY[=VALUE]`  | Фильтрация узлов по taint (ключ или ключ=значение)             |              |
 | `--filter ATTR=VALUE`   | Фильтрация вывода по атрибуту узла                             |              |
 | `--sort COLUMN=DIR`     | Сортировка по столбцу и направлению                            | `pool=asc`   |
+| `--deployment NS/NAME`  | Показать только узлы с подами данного deployment               |              |
+| `--statefulset NS/NAME` | Показать только узлы с подами данного statefulset              |              |
+| `--daemonset NS/NAME`   | Показать только узлы с подами данного daemonset                |              |
+| `--namespace NAME`      | Показать только узлы с подами из данного namespace             |              |
 | `--fargate`             | Включить Fargate-узлы в вывод                                  | `false`      |
 | `--color true\|false`   | Принудительно включить или выключить ANSI-цвета                | `auto`       |
 | `--debug`               | Включить отладочный вывод в stderr                             | `false`      |
@@ -193,6 +197,58 @@ kubectl k8i --color false
 
 ```bash
 kubectl k8i --no-headers
+```
+
+### Показать узлы конкретного deployment
+
+```bash
+# Только узлы, на которых запущены поды deployment "api-server" в namespace "production"
+kubectl k8i --deployment production/api-server
+```
+
+Автодополнение по TAB работает для этого флага — после `--deployment` TAB предложит список namespace, после `namespace/` TAB — список deployment в этом namespace.
+
+### Показать узлы конкретного statefulset
+
+```bash
+# Только узлы, на которых запущены поды statefulset "postgres" в namespace "production"
+kubectl k8i --statefulset production/postgres
+```
+
+Автодополнение работает аналогично `--deployment`.
+
+### Показать узлы конкретного daemonset
+
+```bash
+# Только узлы, на которых запущены поды daemonset "fluentd" в namespace "logging"
+kubectl k8i --daemonset logging/fluentd
+```
+
+Автодополнение работает аналогично `--deployment`.
+
+### Показать узлы с подами из конкретного namespace
+
+```bash
+# Только узлы, на которых есть хотя бы один запущенный под из namespace "monitoring"
+kubectl k8i --namespace monitoring
+```
+
+Автодополнение возвращает список всех доступных namespace.
+
+### Комбинирование фильтров по воркload с другими флагами
+
+```bash
+# Узлы deployment, отсортированные по загрузке памяти
+kubectl k8i --deployment production/api-server --sort mem_load=desc
+
+# Узлы statefulset, вывод в JSON
+kubectl k8i --statefulset production/postgres -o json
+
+# Узлы daemonset, сгруппированные по taints
+kubectl k8i --daemonset logging/fluentd --group-by taint
+
+# Узлы namespace, сгруппированные по taints
+kubectl k8i --namespace monitoring --group-by taint
 ```
 
 ## Форматы вывода

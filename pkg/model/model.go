@@ -73,6 +73,7 @@ type RunConfig struct {
 	Deployment  string // --deployment namespace/name: show only nodes running pods of this deployment
 	StatefulSet string // --statefulset namespace/name: show only nodes running pods of this statefulset
 	Namespace   string // --namespace name: show only nodes running pods from this namespace
+	DaemonSet   string // --daemonset namespace/name: show only nodes running pods of this daemonset
 }
 
 // PodAggregation holds per-node pod resource totals.

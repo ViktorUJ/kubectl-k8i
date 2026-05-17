@@ -323,6 +323,42 @@ func (c *Collector) NodeNamesForStatefulSet(ctx context.Context, namespace, name
 	return nodeNames, nil
 }
 
+// NodeNamesForDaemonSet returns the set of node names that have at least one
+// running pod belonging to the given daemonset (namespace/name).
+func (c *Collector) NodeNamesForDaemonSet(ctx context.Context, namespace, name string) (map[string]struct{}, error) {
+	ds, err := c.clientset.AppsV1().DaemonSets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get daemonset %s/%s: %w", namespace, name, err)
+	}
+
+	selector := ds.Spec.Selector
+	if selector == nil || len(selector.MatchLabels) == 0 {
+		return nil, fmt.Errorf("daemonset %s/%s has no label selector", namespace, name)
+	}
+
+	parts := make([]string, 0, len(selector.MatchLabels))
+	for k, v := range selector.MatchLabels {
+		parts = append(parts, k+"="+v)
+	}
+	labelSel := strings.Join(parts, ",")
+
+	podList, err := c.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSel,
+		FieldSelector: "status.phase=Running",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods for daemonset %s/%s: %w", namespace, name, err)
+	}
+
+	nodeNames := make(map[string]struct{}, len(podList.Items))
+	for i := range podList.Items {
+		if n := podList.Items[i].Spec.NodeName; n != "" {
+			nodeNames[n] = struct{}{}
+		}
+	}
+	return nodeNames, nil
+}
+
 // NodeNamesForNamespace returns the set of node names that have at least one
 // running pod in the given namespace.
 func (c *Collector) NodeNamesForNamespace(ctx context.Context, namespace string) (map[string]struct{}, error) {

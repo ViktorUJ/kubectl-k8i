@@ -97,6 +97,10 @@ kubectl k8i [flags]
 | `--taints KEY[=VALUE]`  | Filter nodes by taint key or key=value                         |            |
 | `--filter ATTR=VALUE`   | Filter output by node attribute                                |            |
 | `--sort COLUMN=DIR`     | Sort output by column and direction                            | `pool=asc` |
+| `--deployment NS/NAME`  | Show only nodes running pods of this deployment                |            |
+| `--statefulset NS/NAME` | Show only nodes running pods of this statefulset               |            |
+| `--daemonset NS/NAME`   | Show only nodes running pods of this daemonset                 |            |
+| `--namespace NAME`      | Show only nodes running pods from this namespace               |            |
 | `--fargate`             | Include Fargate nodes in the output                            | `false`    |
 | `--color true\|false`   | Force enable or disable ANSI colors                            | `auto`     |
 | `--debug`               | Enable debug output to stderr                                  | `false`    |
@@ -183,6 +187,58 @@ kubectl k8i --color false
 
 ```bash
 kubectl k8i --no-headers
+```
+
+### Show nodes running a specific deployment
+
+```bash
+# Show only nodes that have pods of the "api-server" deployment in the "production" namespace
+kubectl k8i --deployment production/api-server
+```
+
+Tab completion works for this flag — press TAB after `--deployment` to get a list of namespaces, then TAB again after `namespace/` to get deployments in that namespace.
+
+### Show nodes running a specific statefulset
+
+```bash
+# Show only nodes that have pods of the "postgres" statefulset in the "production" namespace
+kubectl k8i --statefulset production/postgres
+```
+
+Tab completion works the same way as `--deployment`.
+
+### Show nodes running a specific daemonset
+
+```bash
+# Show only nodes that have pods of the "fluentd" daemonset in the "logging" namespace
+kubectl k8i --daemonset logging/fluentd
+```
+
+Tab completion works the same way as `--deployment`.
+
+### Show nodes running pods from a specific namespace
+
+```bash
+# Show only nodes that have at least one running pod from the "monitoring" namespace
+kubectl k8i --namespace monitoring
+```
+
+Tab completion returns all available namespaces.
+
+### Combine workload filters with other flags
+
+```bash
+# Nodes of a deployment, sorted by memory load
+kubectl k8i --deployment production/api-server --sort mem_load=desc
+
+# Nodes of a statefulset, JSON output
+kubectl k8i --statefulset production/postgres -o json
+
+# Nodes of a daemonset, grouped by taints
+kubectl k8i --daemonset logging/fluentd --group-by taint
+
+# Nodes of a namespace, grouped by taints
+kubectl k8i --namespace monitoring --group-by taint
 ```
 
 ## Output Formats

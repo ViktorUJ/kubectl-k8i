@@ -37,7 +37,7 @@ func genNodeInfo() *rapid.Generator[model.NodeInfo] {
 			Zone:             rapid.SampledFrom([]string{"1a", "1b", "2a"}).Draw(t, "zone"),
 			Nodepool:         rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "pool"),
 			Nodeclaim:        rapid.StringMatching(`[a-z]{3,15}`).Draw(t, "claim"),
-			Autoscaler:       rapid.SampledFrom([]string{"karpenter", "cas", "spotio", "x"}).Draw(t, "as"),
+			Autoscaler:       rapid.SampledFrom([]string{"karpenter", "cluster-autoscaler", "spotio", "x"}).Draw(t, "as"),
 			Age:              rapid.SampledFrom([]string{"5d12h", "3h45m", "12m"}).Draw(t, "age"),
 			TaintStr:         rapid.SampledFrom([]string{"none", "dedicated=gpu:NoSchedule", "team=backend:NoExecute"}).Draw(t, "taints"),
 		}

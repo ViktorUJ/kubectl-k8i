@@ -45,7 +45,7 @@ type NodeInfo struct {
 	Nodeclaim     string
 
 	// Autoscaler type
-	Autoscaler string // "karpenter", "cas", "spotio", "x"
+	Autoscaler string // "karpenter", "cluster-autoscaler", "spotio", "x"
 
 	// Age
 	CreationTime time.Time
@@ -74,6 +74,37 @@ type RunConfig struct {
 	StatefulSet string // --statefulset namespace/name: show only nodes running pods of this statefulset
 	Namespace   string // --namespace name: show only nodes running pods from this namespace
 	DaemonSet   string // --daemonset namespace/name: show only nodes running pods of this daemonset
+	Autoscaler  string // --autoscaler value: show only nodes managed by this autoscaler (karpenter, cas, spotio, x)
+}
+
+// WorkloadInfo holds aggregated resource information for a single workload owner.
+type WorkloadInfo struct {
+	Namespace string // kubernetes namespace
+	Kind      string // Deployment, StatefulSet, DaemonSet, Pod
+	Name      string // workload name
+
+	PodCount int // number of running pods on the selected nodes
+
+	CPURequestCores float64
+	CPULimitCores   float64
+	CPUUsageCores   float64
+
+	MemRequestGB float64
+	MemLimitGB   float64
+	MemUsageGB   float64
+}
+
+// AnalyzeConfig holds all parsed CLI options for the analyze subcommand.
+type AnalyzeConfig struct {
+	Context           string   // --context
+	NodeName          string   // --node
+	Labels            string   // --labels
+	Taints            string   // --taints
+	Autoscaler        string   // --autoscaler (karpenter, cas, spotio, x)
+	ExcludeNamespaces []string // --exclude-namespace (repeatable)
+	Output            string   // --output / -o
+	Color             *bool    // --color
+	Debug             bool     // --debug
 }
 
 // PodAggregation holds per-node pod resource totals.

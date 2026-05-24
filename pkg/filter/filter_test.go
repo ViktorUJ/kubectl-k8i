@@ -61,7 +61,7 @@ func sampleNodes() []model.NodeInfo {
 			withZone("1b"),
 			withPool("pool-b"),
 			withNodeclaim("claim-2"),
-			withAutoscaler("cas"),
+			withAutoscaler("cluster-autoscaler"),
 			withTaints([]corev1.Taint{{Key: "team", Value: "backend", Effect: corev1.TaintEffectNoExecute}}),
 		),
 		node("node-3",

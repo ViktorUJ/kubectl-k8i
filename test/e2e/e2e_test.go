@@ -560,7 +560,7 @@ func TestE2E_JSONIncludesAutoscalerField(t *testing.T) {
 	}
 	assert.Equal(t, "karpenter", nodeMap["karpenter-node-1"].Autoscaler)
 	assert.Equal(t, "spotio", nodeMap["spotinst-node-1"].Autoscaler)
-	assert.Equal(t, "cas", nodeMap["eks-node-1"].Autoscaler)
+	assert.Equal(t, "cluster-autoscaler", nodeMap["eks-node-1"].Autoscaler)
 	assert.Equal(t, "x", nodeMap["plain-node-1"].Autoscaler)
 }
 

@@ -32,7 +32,7 @@ func genNodeInfo() *rapid.Generator[model.NodeInfo] {
 			Zone:             rapid.SampledFrom([]string{"1a", "1b", "1c", "2a"}).Draw(t, "zone"),
 			Nodepool:         rapid.SampledFrom([]string{"pool-a", "pool-b", "pool-c"}).Draw(t, "pool"),
 			TaintSortKey:     rapid.SampledFrom([]string{"", "dedicated", "team", "dedicated,team"}).Draw(t, "tsk"),
-			Autoscaler:       rapid.SampledFrom([]string{"karpenter", "cas", "spotio", "x"}).Draw(t, "as"),
+			Autoscaler:       rapid.SampledFrom([]string{"karpenter", "cluster-autoscaler", "spotio", "x"}).Draw(t, "as"),
 			CreationTime:     time.Unix(rapid.Int64Range(1600000000, 1750000000).Draw(t, "ctime"), 0),
 		}
 	})

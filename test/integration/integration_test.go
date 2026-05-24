@@ -369,7 +369,7 @@ func TestFilterAttribute_Autoscaler(t *testing.T) {
 	assert.Len(t, filtered, 1)
 	assert.Equal(t, "spotinst-node-1", filtered[0].Name)
 
-	filtered, err = filter.FilterNodes(nodes, "autoscaler", "cas")
+	filtered, err = filter.FilterNodes(nodes, "autoscaler", "cluster-autoscaler")
 	require.NoError(t, err)
 	assert.Len(t, filtered, 1)
 	assert.Equal(t, "eks-node-1", filtered[0].Name)
@@ -633,7 +633,7 @@ func TestAutoscalerDetection_FullPipeline(t *testing.T) {
 
 	assert.Equal(t, "karpenter", nodeMap["karpenter-node-1"].Autoscaler)
 	assert.Equal(t, "spotio", nodeMap["spotinst-node-1"].Autoscaler)
-	assert.Equal(t, "cas", nodeMap["eks-node-1"].Autoscaler)
+	assert.Equal(t, "cluster-autoscaler", nodeMap["eks-node-1"].Autoscaler)
 	assert.Equal(t, "x", nodeMap["plain-node-1"].Autoscaler)
 }
 
@@ -675,7 +675,7 @@ func TestAutoscalerSorting_FullPipeline(t *testing.T) {
 	assert.Contains(t, out, "AUTOSCALER")
 	assert.Contains(t, out, "karpenter")
 	assert.Contains(t, out, "spotio")
-	assert.Contains(t, out, "cas")
+	assert.Contains(t, out, "cluster-autoscaler")
 }
 
 func TestCompleteOutputFormat(t *testing.T) {

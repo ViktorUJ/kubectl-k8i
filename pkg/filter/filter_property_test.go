@@ -27,7 +27,7 @@ func genNodeInfo() *rapid.Generator[model.NodeInfo] {
 		capacityTypes := []string{"spot", "od", "x"}
 		architectures := []string{"amd64", "arm64"}
 		zones := []string{"1a", "1b", "1c", "2a", "2b"}
-		autoscalers := []string{"karpenter", "cas", "spotio", "x"}
+		autoscalers := []string{"karpenter", "cluster-autoscaler", "spotio", "x"}
 
 		return model.NodeInfo{
 			Name:         name,

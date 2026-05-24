@@ -12,6 +12,7 @@
 - **Определение автоскейлера**: Karpenter, Cluster Autoscaler (CAS) и Spot.io
 - **Фильтрация и сортировка** по любому атрибуту или столбцу
 - **Группировка по taints** для идентификации логических групп узлов
+- **Анализ воркloadов**: показывает все воркloады (Deployment, StatefulSet, DaemonSet, Pod) на выбранных узлах с агрегированными данными CPU/памяти
 - **Множественные форматы вывода**: table (по умолчанию), JSON, YAML
 - **Адаптивная таблица**: столбцы подстраиваются под ширину терминала
 - **Без внешних зависимостей**: автономный бинарный файл, не требует jq/awk/sed/grep
@@ -95,6 +96,7 @@ kubectl k8i --<TAB><TAB>
 
 ```bash
 kubectl k8i [флаги]
+kubectl k8i analyze [флаги]
 ```
 
 ### Флаги
@@ -110,6 +112,7 @@ kubectl k8i [флаги]
 | `--statefulset NS/NAME` | Показать только узлы с подами данного statefulset              |              |
 | `--daemonset NS/NAME`   | Показать только узлы с подами данного daemonset                |              |
 | `--namespace NAME`      | Показать только узлы с подами из данного namespace             |              |
+| `--autoscaler VALUE`    | Показать только узлы данного автоскейлера (`karpenter`, `cluster-autoscaler`, `spotio`, `x`) | |
 | `--fargate`             | Включить Fargate-узлы в вывод                                  | `false`      |
 | `--color true\|false`   | Принудительно включить или выключить ANSI-цвета                | `auto`       |
 | `--debug`               | Включить отладочный вывод в stderr                             | `false`      |
@@ -235,6 +238,24 @@ kubectl k8i --namespace monitoring
 
 Автодополнение возвращает список всех доступных namespace.
 
+### Фильтрация по типу автоскейлера
+
+```bash
+# Только узлы под управлением Karpenter
+kubectl k8i --autoscaler karpenter
+
+# Только узлы Cluster Autoscaler (EKS nodegroup)
+kubectl k8i --autoscaler cluster-autoscaler
+
+# Только узлы Spot.io
+kubectl k8i --autoscaler spotio
+
+# Только узлы без распознанного автоскейлера
+kubectl k8i --autoscaler x
+```
+
+Автодополнение возвращает все допустимые значения: `karpenter`, `cluster-autoscaler`, `spotio`, `x`.
+
 ### Комбинирование фильтров по воркload с другими флагами
 
 ```bash
@@ -249,6 +270,95 @@ kubectl k8i --daemonset logging/fluentd --group-by taint
 
 # Узлы namespace, сгруппированные по taints
 kubectl k8i --namespace monitoring --group-by taint
+```
+
+## Подкоманда analyze
+
+`kubectl k8i analyze` показывает все воркloады, запущенные на выбранном наборе узлов. Для каждого воркloада отображается namespace, тип, имя, количество подов и агрегированные CPU/память (requests, limits, usage).
+
+### Флаги analyze
+
+| Флаг                          | Описание                                                        | По умолчанию |
+|-------------------------------|-----------------------------------------------------------------|--------------|
+| `--node NAME`                 | Анализировать воркloады на конкретном узле                      |              |
+| `--labels SELECTOR`           | Анализировать воркloады на узлах по label selector              |              |
+| `--taints KEY[=VALUE]`        | Анализировать воркloады на узлах с данным taint                 |              |
+| `--autoscaler VALUE`          | Анализировать воркloады на узлах данного автоскейлера (`karpenter`, `cluster-autoscaler`, `spotio`, `x`) | |
+| `--exclude-namespace NAME`    | Исключить namespace из вывода (флаг можно указывать несколько раз) |           |
+| `--output, -o FORMAT`         | Формат вывода: `table`, `json`, `yaml`                          | `table`      |
+| `--color true\|false`         | Принудительно включить или выключить ANSI-цвета                 | `auto`       |
+| `--context CONTEXT`           | Kubernetes-контекст                                             |              |
+| `--debug`                     | Включить отладочный вывод в stderr                              | `false`      |
+
+Необходимо указать ровно один из флагов: `--node`, `--labels`, `--taints` или `--autoscaler`.
+
+Результаты сортируются по namespace → тип → имя.
+
+### Примеры analyze
+
+```bash
+# Анализ воркloadов на конкретном узле
+kubectl k8i analyze --node ip-10-0-1-100
+
+# Анализ воркloadов на узлах по label selector
+kubectl k8i analyze --labels 'worker-type=spot'
+
+# Анализ воркloadов на узлах с конкретным taint
+kubectl k8i analyze --taints 'dedicated=gpu'
+
+# Анализ воркloadов на всех узлах Karpenter
+kubectl k8i analyze --autoscaler karpenter
+
+# Анализ воркloadов на узлах EKS nodegroup (CAS)
+kubectl k8i analyze --autoscaler cluster-autoscaler
+
+# Анализ воркloadов на узлах Spot.io, исключить системные namespace
+kubectl k8i analyze --autoscaler spotio --exclude-namespace kube-system
+
+# Исключить системные namespace для уменьшения шума
+kubectl k8i analyze --labels 'worker-type=spot' \
+  --exclude-namespace kube-system \
+  --exclude-namespace monitoring
+
+# Вывод в JSON
+kubectl k8i analyze --node ip-10-0-1-100 -o json
+
+# Вывод в YAML
+kubectl k8i analyze --autoscaler karpenter -o yaml
+```
+
+### Формат таблицы analyze
+
+```
+NAMESPACE            KIND         NAME                                PODS  CPU req/lim/use    MEM req/lim/use GB
+                                                                            (cores)
+========================================================================================
+production           Deployment   api-server                             3  0.75/1.50/0.42     1.00/2.00/0.65
+production           StatefulSet  postgres                               2  0.50/1.00/0.31     2.00/4.00/1.80
+kube-system          DaemonSet    aws-node                               1  0.02/0.00/0.01     0.03/0.00/0.02
+```
+
+### JSON-вывод analyze
+
+```bash
+kubectl k8i analyze --node ip-10-0-1-100 -o json
+```
+
+```json
+[
+  {
+    "namespace": "production",
+    "kind": "Deployment",
+    "name": "api-server",
+    "pod_count": 3,
+    "cpu_request_cores": 0.75,
+    "cpu_limit_cores": 1.5,
+    "cpu_usage_cores": 0.42,
+    "mem_request_gb": 1.0,
+    "mem_limit_gb": 2.0,
+    "mem_usage_gb": 0.65
+  }
+]
 ```
 
 ## Форматы вывода

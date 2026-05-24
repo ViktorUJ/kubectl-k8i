@@ -45,6 +45,7 @@ func NewRootCommand() *cobra.Command {
 		statefulSetFlag string
 		namespaceFlag   string
 		daemonSetFlag   string
+		autoscalerFlag  string
 	)
 
 	cmd := &cobra.Command{
@@ -61,6 +62,11 @@ Displays detailed information about Kubernetes nodes including:
   - Memory resources (requests/limits/usage/capacity)
   - Load percentages with color coding
   - Node metadata (instance type, capacity type, zone, etc.)
+
+Subcommands:
+  analyze   Show all workloads running on selected nodes with aggregated
+            CPU/memory requests, limits, and usage. Select nodes by name,
+            label selector, or taint. Use --exclude-namespace to reduce noise.
 
 Filter format:
   --filter 'attribute=value' where attribute can be:
@@ -146,7 +152,16 @@ Shell completion:
   # Install shell completion (tab-completion for flags)
   kubectl k8i completion > kubectl_complete-k8i
   chmod +x kubectl_complete-k8i
-  sudo mv kubectl_complete-k8i /usr/local/bin/`,
+  sudo mv kubectl_complete-k8i /usr/local/bin/
+
+  # Analyze workloads on a specific node
+  kubectl k8i analyze --node ip-10-0-1-100
+
+  # Analyze workloads on spot nodes, exclude system namespaces
+  kubectl k8i analyze --labels 'worker-type=spot' --exclude-namespace kube-system
+
+  # Analyze workloads on tainted nodes, JSON output
+  kubectl k8i analyze --taints 'dedicated=gpu' -o json`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -166,6 +181,7 @@ Shell completion:
 				StatefulSet: statefulSetFlag,
 				Namespace:   namespaceFlag,
 				DaemonSet:   daemonSetFlag,
+				Autoscaler:  autoscalerFlag,
 			}
 
 			// Handle --color flag: "true" → &true, "false" → &false, "auto"/empty → nil.
@@ -201,6 +217,7 @@ Shell completion:
 	cmd.Flags().StringVar(&statefulSetFlag, "statefulset", "", "Show only nodes running pods of this statefulset (format: namespace/name)")
 	cmd.Flags().StringVar(&namespaceFlag, "namespace", "", "Show only nodes running pods from this namespace")
 	cmd.Flags().StringVar(&daemonSetFlag, "daemonset", "", "Show only nodes running pods of this daemonset (format: namespace/name)")
+	cmd.Flags().StringVar(&autoscalerFlag, "autoscaler", "", "Show only nodes managed by this autoscaler (karpenter, cas, spotio, x)")
 
 	// Register dynamic completion functions for flags.
 	_ = cmd.RegisterFlagCompletionFunc("labels", completeLabelSelectors)
@@ -212,6 +229,9 @@ Shell completion:
 	_ = cmd.RegisterFlagCompletionFunc("statefulset", completeStatefulSets)
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completeNamespaces)
 	_ = cmd.RegisterFlagCompletionFunc("daemonset", completeDaemonSets)
+	_ = cmd.RegisterFlagCompletionFunc("autoscaler", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"karpenter", "cluster-autoscaler", "spotio", "x"}, cobra.ShellCompDirectiveNoFileComp
+	})
 	_ = cmd.RegisterFlagCompletionFunc("output", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"table", "json", "yaml"}, cobra.ShellCompDirectiveNoFileComp
 	})
@@ -224,6 +244,7 @@ Shell completion:
 
 	// Add completion subcommand.
 	cmd.AddCommand(newCompletionCmd())
+	cmd.AddCommand(newAnalyzeCmd())
 
 	return cmd
 }
@@ -496,6 +517,19 @@ func runCommand(ctx context.Context, cfg model.RunConfig) error {
 		}
 		nodes = filtered
 		debugLogger.LogFilterSort("daemonset", cfg.DaemonSet, inputCount, len(nodes))
+	}
+
+	// Apply autoscaler filter if --autoscaler is set.
+	if cfg.Autoscaler != "" {
+		inputCount := len(nodes)
+		filtered := nodes[:0]
+		for _, n := range nodes {
+			if strings.EqualFold(n.Autoscaler, cfg.Autoscaler) {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
+		debugLogger.LogFilterSort("autoscaler", cfg.Autoscaler, inputCount, len(nodes))
 	}
 
 	// Hide Fargate nodes unless --fargate is set.

@@ -449,7 +449,7 @@ func TestSortByTaint_Desc(t *testing.T) {
 func TestSortByAutoscaler_Asc(t *testing.T) {
 	nodes := []model.NodeInfo{
 		mkNode("a", func(n *model.NodeInfo) { n.Autoscaler = "spotio" }),
-		mkNode("b", func(n *model.NodeInfo) { n.Autoscaler = "cas" }),
+		mkNode("b", func(n *model.NodeInfo) { n.Autoscaler = "cluster-autoscaler" }),
 		mkNode("c", func(n *model.NodeInfo) { n.Autoscaler = "karpenter" }),
 	}
 	err := SortNodes(nodes, "autoscaler", "asc")
@@ -460,7 +460,7 @@ func TestSortByAutoscaler_Asc(t *testing.T) {
 func TestSortByAutoscaler_Desc(t *testing.T) {
 	nodes := []model.NodeInfo{
 		mkNode("a", func(n *model.NodeInfo) { n.Autoscaler = "spotio" }),
-		mkNode("b", func(n *model.NodeInfo) { n.Autoscaler = "cas" }),
+		mkNode("b", func(n *model.NodeInfo) { n.Autoscaler = "cluster-autoscaler" }),
 		mkNode("c", func(n *model.NodeInfo) { n.Autoscaler = "karpenter" }),
 	}
 	err := SortNodes(nodes, "autoscaler", "desc")

@@ -1,0 +1,339 @@
+package analyze
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/kubectl-k8i/pkg/labels"
+	"github.com/kubectl-k8i/pkg/model"
+	"github.com/kubectl-k8i/pkg/parser"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	metricsv1beta1client "k8s.io/metrics/pkg/client/clientset/versioned/typed/metrics/v1beta1"
+)
+
+// ownerKey uniquely identifies a workload owner.
+type ownerKey struct {
+	namespace string
+	kind      string
+	name      string
+}
+
+// workloadAgg accumulates resource totals for one workload.
+type workloadAgg struct {
+	podCount        int
+	cpuRequestMilli int64
+	cpuLimitMilli   int64
+	cpuUsageMilli   int64
+	memRequestGB    float64
+	memLimitGB      float64
+	memUsageGB      float64
+}
+
+// Collector gathers workload data for the analyze subcommand.
+type Collector struct {
+	clientset     kubernetes.Interface
+	metricsClient metricsv1beta1client.MetricsV1beta1Interface
+}
+
+// NewCollector creates an analyze Collector.
+func NewCollector(
+	clientset kubernetes.Interface,
+	metricsClient metricsv1beta1client.MetricsV1beta1Interface,
+) *Collector {
+	return &Collector{
+		clientset:     clientset,
+		metricsClient: metricsClient,
+	}
+}
+
+// CollectForNodes resolves the target node set from cfg, then aggregates
+// workload resource data for all running pods on those nodes.
+// excludeNS is the set of namespaces to skip.
+func (c *Collector) CollectForNodes(
+	ctx context.Context,
+	cfg model.AnalyzeConfig,
+) ([]model.WorkloadInfo, error) {
+	// 1. Resolve target node names.
+	nodeNames, err := c.resolveNodes(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(nodeNames) == 0 {
+		return nil, fmt.Errorf("no ready nodes matched the given selector")
+	}
+
+	// Build exclude set.
+	excludeSet := make(map[string]struct{}, len(cfg.ExcludeNamespaces))
+	for _, ns := range cfg.ExcludeNamespaces {
+		excludeSet[ns] = struct{}{}
+	}
+
+	// 2. List all running pods across all namespaces.
+	podList, err := c.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		FieldSelector: "status.phase=Running",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	// 3. Fetch pod metrics (non-fatal if unavailable).
+	podMetrics := make(map[string]map[string]int64) // namespace/name → container → cpuMilli
+	podMemMetrics := make(map[string]map[string]float64)
+	if c.metricsClient != nil {
+		ml, err := c.metricsClient.PodMetricses("").List(ctx, metav1.ListOptions{})
+		if err == nil && ml != nil {
+			for i := range ml.Items {
+				pm := &ml.Items[i]
+				key := pm.Namespace + "/" + pm.Name
+				cpuMap := make(map[string]int64)
+				memMap := make(map[string]float64)
+				for _, c := range pm.Containers {
+					if cpu, ok := c.Usage[corev1.ResourceCPU]; ok {
+						cpuMap[c.Name] = parser.ParseCPUMillicores(cpu.String())
+					}
+					if mem, ok := c.Usage[corev1.ResourceMemory]; ok {
+						memMap[c.Name] = parser.ParseMemory(mem.String())
+					}
+				}
+				podMetrics[key] = cpuMap
+				podMemMetrics[key] = memMap
+			}
+		}
+	}
+
+	// 4. Build ReplicaSet → Deployment cache (lazy, per namespace).
+	rsOwnerCache := make(map[string]ownerKey) // "namespace/rsName" → deployment ownerKey
+
+	// 5. Aggregate per workload.
+	aggs := make(map[ownerKey]*workloadAgg)
+
+	for i := range podList.Items {
+		pod := &podList.Items[i]
+
+		// Only pods on target nodes.
+		if _, ok := nodeNames[pod.Spec.NodeName]; !ok {
+			continue
+		}
+		// Skip excluded namespaces.
+		if _, excluded := excludeSet[pod.Namespace]; excluded {
+			continue
+		}
+
+		owner := resolveTopOwner(ctx, c.clientset, pod, rsOwnerCache)
+
+		agg, exists := aggs[owner]
+		if !exists {
+			agg = &workloadAgg{}
+			aggs[owner] = agg
+		}
+		agg.podCount++
+
+		// Sum container requests/limits.
+		for j := range pod.Spec.Containers {
+			ctr := &pod.Spec.Containers[j]
+			if cpu, ok := ctr.Resources.Requests[corev1.ResourceCPU]; ok {
+				agg.cpuRequestMilli += parser.ParseCPUMillicores(cpu.String())
+			}
+			if cpu, ok := ctr.Resources.Limits[corev1.ResourceCPU]; ok {
+				agg.cpuLimitMilli += parser.ParseCPUMillicores(cpu.String())
+			}
+			if mem, ok := ctr.Resources.Requests[corev1.ResourceMemory]; ok {
+				agg.memRequestGB += parser.ParseMemory(mem.String())
+			}
+			if mem, ok := ctr.Resources.Limits[corev1.ResourceMemory]; ok {
+				agg.memLimitGB += parser.ParseMemory(mem.String())
+			}
+		}
+
+		// Sum metrics usage.
+		podKey := pod.Namespace + "/" + pod.Name
+		if cpuMap, ok := podMetrics[podKey]; ok {
+			for _, v := range cpuMap {
+				agg.cpuUsageMilli += v
+			}
+		}
+		if memMap, ok := podMemMetrics[podKey]; ok {
+			for _, v := range memMap {
+				agg.memUsageGB += v
+			}
+		}
+	}
+
+	// 6. Convert to WorkloadInfo slice, sort by namespace then name.
+	result := make([]model.WorkloadInfo, 0, len(aggs))
+	for k, v := range aggs {
+		result = append(result, model.WorkloadInfo{
+			Namespace:       k.namespace,
+			Kind:            k.kind,
+			Name:            k.name,
+			PodCount:        v.podCount,
+			CPURequestCores: float64(v.cpuRequestMilli) / 1000.0,
+			CPULimitCores:   float64(v.cpuLimitMilli) / 1000.0,
+			CPUUsageCores:   float64(v.cpuUsageMilli) / 1000.0,
+			MemRequestGB:    v.memRequestGB,
+			MemLimitGB:      v.memLimitGB,
+			MemUsageGB:      v.memUsageGB,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Namespace != result[j].Namespace {
+			return result[i].Namespace < result[j].Namespace
+		}
+		if result[i].Kind != result[j].Kind {
+			return result[i].Kind < result[j].Kind
+		}
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+// resolveNodes returns the set of node names matching the analyze config.
+func (c *Collector) resolveNodes(ctx context.Context, cfg model.AnalyzeConfig) (map[string]struct{}, error) {
+	switch {
+	case cfg.NodeName != "":
+		// Single node by name.
+		node, err := c.clientset.CoreV1().Nodes().Get(ctx, cfg.NodeName, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("node %q not found: %w", cfg.NodeName, err)
+		}
+		if !isNodeReady(node) {
+			return nil, fmt.Errorf("node %q is not Ready", cfg.NodeName)
+		}
+		return map[string]struct{}{cfg.NodeName: {}}, nil
+
+	case cfg.Labels != "":
+		nodeList, err := c.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+			LabelSelector: cfg.Labels,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list nodes by labels: %w", err)
+		}
+		result := make(map[string]struct{})
+		for i := range nodeList.Items {
+			if isNodeReady(&nodeList.Items[i]) {
+				result[nodeList.Items[i].Name] = struct{}{}
+			}
+		}
+		return result, nil
+
+	case cfg.Taints != "":
+		nodeList, err := c.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list nodes: %w", err)
+		}
+		result := make(map[string]struct{})
+		for i := range nodeList.Items {
+			node := &nodeList.Items[i]
+			if !isNodeReady(node) {
+				continue
+			}
+			if matchTaint(node.Spec.Taints, cfg.Taints) {
+				result[node.Name] = struct{}{}
+			}
+		}
+		return result, nil
+
+	case cfg.Autoscaler != "":
+		nodeList, err := c.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list nodes: %w", err)
+		}
+		result := make(map[string]struct{})
+		for i := range nodeList.Items {
+			node := &nodeList.Items[i]
+			if !isNodeReady(node) {
+				continue
+			}
+			if strings.EqualFold(labels.DetectAutoscaler(node.Labels), cfg.Autoscaler) {
+				result[node.Name] = struct{}{}
+			}
+		}
+		return result, nil
+
+	default:
+		return nil, fmt.Errorf("one of --node, --labels, --taints, or --autoscaler is required")
+	}
+}
+
+// resolveTopOwner walks ownerReferences to find the top-level workload owner.
+// ReplicaSet → Deployment is resolved via API (cached).
+// Returns an ownerKey with kind=Pod if no owner found.
+func resolveTopOwner(
+	ctx context.Context,
+	clientset kubernetes.Interface,
+	pod *corev1.Pod,
+	rsCache map[string]ownerKey,
+) ownerKey {
+	if len(pod.OwnerReferences) == 0 {
+		return ownerKey{namespace: pod.Namespace, kind: "Pod", name: pod.Name}
+	}
+
+	ref := pod.OwnerReferences[0]
+
+	switch ref.Kind {
+	case "ReplicaSet":
+		cacheKey := pod.Namespace + "/" + ref.Name
+		if cached, ok := rsCache[cacheKey]; ok {
+			return cached
+		}
+		rs, err := clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+		if err != nil {
+			// Can't resolve — treat RS itself as owner.
+			k := ownerKey{namespace: pod.Namespace, kind: "ReplicaSet", name: ref.Name}
+			rsCache[cacheKey] = k
+			return k
+		}
+		if len(rs.OwnerReferences) > 0 && rs.OwnerReferences[0].Kind == "Deployment" {
+			k := ownerKey{namespace: pod.Namespace, kind: "Deployment", name: rs.OwnerReferences[0].Name}
+			rsCache[cacheKey] = k
+			return k
+		}
+		k := ownerKey{namespace: pod.Namespace, kind: "ReplicaSet", name: ref.Name}
+		rsCache[cacheKey] = k
+		return k
+
+	case "StatefulSet", "DaemonSet", "Job", "CronJob":
+		return ownerKey{namespace: pod.Namespace, kind: ref.Kind, name: ref.Name}
+
+	default:
+		// Unknown controller kind — use it as-is.
+		return ownerKey{namespace: pod.Namespace, kind: ref.Kind, name: ref.Name}
+	}
+}
+
+// isNodeReady returns true if the node has condition Ready=True.
+func isNodeReady(node *corev1.Node) bool {
+	for _, cond := range node.Status.Conditions {
+		if cond.Type == corev1.NodeReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// matchTaint checks if any of the node's taints match the filter string.
+// Supports "KEY" and "KEY=VALUE" formats.
+func matchTaint(taints []corev1.Taint, filter string) bool {
+	if idx := strings.Index(filter, "="); idx >= 0 {
+		key := filter[:idx]
+		val := filter[idx+1:]
+		for _, t := range taints {
+			if t.Key == key && t.Value == val {
+				return true
+			}
+		}
+		return false
+	}
+	for _, t := range taints {
+		if t.Key == filter {
+			return true
+		}
+	}
+	return false
+}

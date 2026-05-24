@@ -12,6 +12,7 @@ A kubectl plugin that displays detailed Kubernetes node resource information wit
 - **Autoscaler detection**: identifies Karpenter, Cluster Autoscaler (CAS), and Spot.io managed nodes
 - **Filter and sort** by any attribute or column
 - **Group by taints** to identify logical node groups
+- **Workload analysis**: show all workloads (Deployments, StatefulSets, DaemonSets, Pods) running on selected nodes with aggregated CPU/memory data
 - **Multiple output formats**: table (default), JSON, YAML
 - **Terminal-adaptive rendering**: table columns adjust to terminal width
 - **Zero external dependencies**: standalone binary, no jq/awk/sed/grep required
@@ -86,6 +87,7 @@ When you press TAB after `kubectl k8i`, kubectl looks for an executable named `k
 
 ```bash
 kubectl k8i [flags]
+kubectl k8i analyze [flags]
 ```
 
 ### Flags
@@ -101,6 +103,7 @@ kubectl k8i [flags]
 | `--statefulset NS/NAME` | Show only nodes running pods of this statefulset               |            |
 | `--daemonset NS/NAME`   | Show only nodes running pods of this daemonset                 |            |
 | `--namespace NAME`      | Show only nodes running pods from this namespace               |            |
+| `--autoscaler VALUE`    | Show only nodes managed by this autoscaler (`karpenter`, `cluster-autoscaler`, `spotio`, `x`) | |
 | `--fargate`             | Include Fargate nodes in the output                            | `false`    |
 | `--color true\|false`   | Force enable or disable ANSI colors                            | `auto`     |
 | `--debug`               | Enable debug output to stderr                                  | `false`    |
@@ -225,6 +228,24 @@ kubectl k8i --namespace monitoring
 
 Tab completion returns all available namespaces.
 
+### Filter by autoscaler type
+
+```bash
+# Show only Karpenter-managed nodes
+kubectl k8i --autoscaler karpenter
+
+# Show only Cluster Autoscaler (EKS nodegroup) nodes
+kubectl k8i --autoscaler cluster-autoscaler
+
+# Show only Spot.io-managed nodes
+kubectl k8i --autoscaler spotio
+
+# Show only nodes with no recognized autoscaler
+kubectl k8i --autoscaler x
+```
+
+Tab completion returns all valid values: `karpenter`, `cluster-autoscaler`, `spotio`, `x`.
+
 ### Combine workload filters with other flags
 
 ```bash
@@ -239,6 +260,95 @@ kubectl k8i --daemonset logging/fluentd --group-by taint
 
 # Nodes of a namespace, grouped by taints
 kubectl k8i --namespace monitoring --group-by taint
+```
+
+## Analyze subcommand
+
+`kubectl k8i analyze` shows all workloads running on a selected set of nodes. For each workload it displays the namespace, kind, name, pod count, and aggregated CPU/memory requests, limits, and usage.
+
+### Analyze flags
+
+| Flag                          | Description                                              | Default  |
+|-------------------------------|----------------------------------------------------------|----------|
+| `--node NAME`                 | Analyze workloads on this specific node                  |          |
+| `--labels SELECTOR`           | Analyze workloads on nodes matching this label selector  |          |
+| `--taints KEY[=VALUE]`        | Analyze workloads on nodes with this taint               |          |
+| `--autoscaler VALUE`          | Analyze workloads on nodes managed by this autoscaler (`karpenter`, `cluster-autoscaler`, `spotio`, `x`) | |
+| `--exclude-namespace NAME`    | Exclude namespace from output (repeatable)               |          |
+| `--output, -o FORMAT`         | Output format: `table`, `json`, `yaml`                   | `table`  |
+| `--color true\|false`         | Force enable or disable ANSI colors                      | `auto`   |
+| `--context CONTEXT`           | Kubernetes context to use                                |          |
+| `--debug`                     | Enable debug output to stderr                            | `false`  |
+
+Exactly one of `--node`, `--labels`, `--taints`, or `--autoscaler` must be provided.
+
+Results are sorted by namespace → kind → name.
+
+### Analyze examples
+
+```bash
+# Analyze workloads on a specific node
+kubectl k8i analyze --node ip-10-0-1-100
+
+# Analyze workloads on nodes with a label selector
+kubectl k8i analyze --labels 'worker-type=spot'
+
+# Analyze workloads on nodes with a specific taint
+kubectl k8i analyze --taints 'dedicated=gpu'
+
+# Analyze workloads on all Karpenter-managed nodes
+kubectl k8i analyze --autoscaler karpenter
+
+# Analyze workloads on EKS nodegroup (CAS) nodes
+kubectl k8i analyze --autoscaler cluster-autoscaler
+
+# Analyze workloads on Spot.io nodes, exclude system namespaces
+kubectl k8i analyze --autoscaler spotio --exclude-namespace kube-system
+
+# Exclude system namespaces to reduce noise
+kubectl k8i analyze --labels 'worker-type=spot' \
+  --exclude-namespace kube-system \
+  --exclude-namespace monitoring
+
+# Output as JSON
+kubectl k8i analyze --node ip-10-0-1-100 -o json
+
+# Output as YAML
+kubectl k8i analyze --autoscaler karpenter -o yaml
+```
+
+### Analyze table output format
+
+```
+NAMESPACE            KIND         NAME                                PODS  CPU req/lim/use    MEM req/lim/use GB
+                                                                            (cores)
+========================================================================================
+production           Deployment   api-server                             3  0.75/1.50/0.42     1.00/2.00/0.65
+production           StatefulSet  postgres                               2  0.50/1.00/0.31     2.00/4.00/1.80
+kube-system          DaemonSet    aws-node                               1  0.02/0.00/0.01     0.03/0.00/0.02
+```
+
+### Analyze JSON output
+
+```bash
+kubectl k8i analyze --node ip-10-0-1-100 -o json
+```
+
+```json
+[
+  {
+    "namespace": "production",
+    "kind": "Deployment",
+    "name": "api-server",
+    "pod_count": 3,
+    "cpu_request_cores": 0.75,
+    "cpu_limit_cores": 1.5,
+    "cpu_usage_cores": 0.42,
+    "mem_request_gb": 1.0,
+    "mem_limit_gb": 2.0,
+    "mem_usage_gb": 0.65
+  }
+]
 ```
 
 ## Output Formats

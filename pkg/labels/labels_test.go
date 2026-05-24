@@ -404,7 +404,7 @@ func TestDetectAutoscaler_CAS(t *testing.T) {
 	labels := map[string]string{
 		"eks.amazonaws.com/nodegroup": "my-group",
 	}
-	assert.Equal(t, "cas", DetectAutoscaler(labels))
+	assert.Equal(t, "cluster-autoscaler", DetectAutoscaler(labels))
 }
 
 func TestDetectAutoscaler_Unknown(t *testing.T) {
@@ -461,5 +461,5 @@ func TestDetectAutoscaler_EmptyValueIgnored(t *testing.T) {
 		"eks.amazonaws.com/nodegroup": "my-group",
 	}
 	// Empty karpenter label should be ignored, fall through to CAS
-	assert.Equal(t, "cas", DetectAutoscaler(labels))
+	assert.Equal(t, "cluster-autoscaler", DetectAutoscaler(labels))
 }

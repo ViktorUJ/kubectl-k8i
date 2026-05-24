@@ -291,7 +291,7 @@ func TestProperty34_AutoscalerDetectionPriority(t *testing.T) {
 		case hasSpotio:
 			expected = "spotio"
 		case hasCAS:
-			expected = "cas"
+			expected = "cluster-autoscaler"
 		default:
 			expected = "x"
 		}

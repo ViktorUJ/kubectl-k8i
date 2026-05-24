@@ -14,7 +14,7 @@ type NodeMetadata struct {
 	Zone          string // last 2 chars only
 	Nodepool      string // truncated to 15 chars for EKS nodegroups
 	Nodeclaim     string // truncated to 20 chars
-	Autoscaler    string // "karpenter", "cas", "spotio", "x"
+	Autoscaler    string // "karpenter", "cluster-autoscaler", "spotio", "x"
 }
 
 // Label keys used for capacity type detection, in priority order.
@@ -101,7 +101,7 @@ func DetectAutoscaler(labels map[string]string) string {
 	}
 	// CAS: eks.amazonaws.com/nodegroup
 	if hasLabel(labels, "eks.amazonaws.com/nodegroup") {
-		return "cas"
+		return "cluster-autoscaler"
 	}
 	return "x"
 }

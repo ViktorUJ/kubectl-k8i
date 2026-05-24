@@ -105,8 +105,13 @@ func (c *Collector) CollectForNodes(
 		}
 	}
 
-	// 4. Build ReplicaSet → Deployment cache (lazy, per namespace).
-	rsOwnerCache := make(map[string]ownerKey) // "namespace/rsName" → deployment ownerKey
+	// 4. Build ReplicaSet → Deployment map (one List call, no per-pod API calls).
+	// Key: "namespace/rsName" → ownerKey of the top-level owner (Deployment or RS itself).
+	rsOwnerMap, err := c.buildRSOwnerMap(ctx)
+	if err != nil {
+		// Non-fatal: if we can't list RS, pods owned by RS will show as "ReplicaSet".
+		rsOwnerMap = make(map[string]ownerKey)
+	}
 
 	// 5. Aggregate per workload.
 	aggs := make(map[ownerKey]*workloadAgg)
@@ -123,7 +128,7 @@ func (c *Collector) CollectForNodes(
 			continue
 		}
 
-		owner := resolveTopOwner(ctx, c.clientset, pod, rsOwnerCache)
+		owner := resolveTopOwner(pod, rsOwnerMap)
 
 		agg, exists := aggs[owner]
 		if !exists {
@@ -261,15 +266,41 @@ func (c *Collector) resolveNodes(ctx context.Context, cfg model.AnalyzeConfig) (
 	}
 }
 
-// resolveTopOwner walks ownerReferences to find the top-level workload owner.
-// ReplicaSet → Deployment is resolved via API (cached).
+// buildRSOwnerMap lists all ReplicaSets across all namespaces and builds
+// a map from "namespace/rsName" to the top-level owner (Deployment).
+// This replaces per-pod API calls with a single List request.
+func (c *Collector) buildRSOwnerMap(ctx context.Context) (map[string]ownerKey, error) {
+	rsList, err := c.clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]ownerKey, len(rsList.Items))
+	for i := range rsList.Items {
+		rs := &rsList.Items[i]
+		key := rs.Namespace + "/" + rs.Name
+
+		if len(rs.OwnerReferences) > 0 && rs.OwnerReferences[0].Kind == "Deployment" {
+			result[key] = ownerKey{
+				namespace: rs.Namespace,
+				kind:      "Deployment",
+				name:      rs.OwnerReferences[0].Name,
+			}
+		} else {
+			result[key] = ownerKey{
+				namespace: rs.Namespace,
+				kind:      "ReplicaSet",
+				name:      rs.Name,
+			}
+		}
+	}
+	return result, nil
+}
+
+// resolveTopOwner determines the top-level workload owner for a pod.
+// Uses the pre-built rsOwnerMap for ReplicaSet → Deployment resolution (no API calls).
 // Returns an ownerKey with kind=Pod if no owner found.
-func resolveTopOwner(
-	ctx context.Context,
-	clientset kubernetes.Interface,
-	pod *corev1.Pod,
-	rsCache map[string]ownerKey,
-) ownerKey {
+func resolveTopOwner(pod *corev1.Pod, rsOwnerMap map[string]ownerKey) ownerKey {
 	if len(pod.OwnerReferences) == 0 {
 		return ownerKey{namespace: pod.Namespace, kind: "Pod", name: pod.Name}
 	}
@@ -278,31 +309,17 @@ func resolveTopOwner(
 
 	switch ref.Kind {
 	case "ReplicaSet":
-		cacheKey := pod.Namespace + "/" + ref.Name
-		if cached, ok := rsCache[cacheKey]; ok {
-			return cached
+		key := pod.Namespace + "/" + ref.Name
+		if owner, ok := rsOwnerMap[key]; ok {
+			return owner
 		}
-		rs, err := clientset.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
-		if err != nil {
-			// Can't resolve — treat RS itself as owner.
-			k := ownerKey{namespace: pod.Namespace, kind: "ReplicaSet", name: ref.Name}
-			rsCache[cacheKey] = k
-			return k
-		}
-		if len(rs.OwnerReferences) > 0 && rs.OwnerReferences[0].Kind == "Deployment" {
-			k := ownerKey{namespace: pod.Namespace, kind: "Deployment", name: rs.OwnerReferences[0].Name}
-			rsCache[cacheKey] = k
-			return k
-		}
-		k := ownerKey{namespace: pod.Namespace, kind: "ReplicaSet", name: ref.Name}
-		rsCache[cacheKey] = k
-		return k
+		// RS not in map (shouldn't happen) — fall back to RS as owner.
+		return ownerKey{namespace: pod.Namespace, kind: "ReplicaSet", name: ref.Name}
 
 	case "StatefulSet", "DaemonSet", "Job", "CronJob":
 		return ownerKey{namespace: pod.Namespace, kind: ref.Kind, name: ref.Name}
 
 	default:
-		// Unknown controller kind — use it as-is.
 		return ownerKey{namespace: pod.Namespace, kind: ref.Kind, name: ref.Name}
 	}
 }

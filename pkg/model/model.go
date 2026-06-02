@@ -92,6 +92,11 @@ type WorkloadInfo struct {
 	MemRequestGB float64
 	MemLimitGB   float64
 	MemUsageGB   float64
+
+	// Overcommit percentages: (limit - request) / request * 100.
+	// -1 means "not applicable" (request is zero).
+	CPUOvercommitPct float64
+	MemOvercommitPct float64
 }
 
 // AnalyzeConfig holds all parsed CLI options for the analyze subcommand.
@@ -100,11 +105,19 @@ type AnalyzeConfig struct {
 	NodeName          string   // --node
 	Labels            string   // --labels
 	Taints            string   // --taints
-	Autoscaler        string   // --autoscaler (karpenter, cas, spotio, x)
+	Autoscaler        string   // --autoscaler (karpenter, cluster-autoscaler, spotio, x)
+	Namespace         string   // --namespace: show only workloads from this namespace
 	ExcludeNamespaces []string // --exclude-namespace (repeatable)
 	Output            string   // --output / -o
 	Color             *bool    // --color
 	Debug             bool     // --debug
+
+	// Overcommit thresholds: show only workloads whose limit exceeds request by
+	// more than the given percentage. Overcommit % = (limit - request) / request * 100.
+	CPUOvercommit    float64 // --cpu-overcommit threshold (percent)
+	CPUOvercommitSet bool    // whether --cpu-overcommit was provided
+	MemOvercommit    float64 // --mem-overcommit threshold (percent)
+	MemOvercommitSet bool    // whether --mem-overcommit was provided
 }
 
 // PodAggregation holds per-node pod resource totals.

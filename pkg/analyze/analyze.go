@@ -72,8 +72,8 @@ func (c *Collector) CollectForNodes(
 		excludeSet[ns] = struct{}{}
 	}
 
-	// 2. List all running pods across all namespaces.
-	podList, err := c.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+	// 2. List running pods. If --namespace is set, scope the query to it.
+	podList, err := c.clientset.CoreV1().Pods(cfg.Namespace).List(ctx, metav1.ListOptions{
 		FieldSelector: "status.phase=Running",
 	})
 	if err != nil {
@@ -123,6 +123,10 @@ func (c *Collector) CollectForNodes(
 		if _, ok := nodeNames[pod.Spec.NodeName]; !ok {
 			continue
 		}
+		// If --namespace is set, only include pods from that namespace.
+		if cfg.Namespace != "" && pod.Namespace != cfg.Namespace {
+			continue
+		}
 		// Skip excluded namespaces.
 		if _, excluded := excludeSet[pod.Namespace]; excluded {
 			continue
@@ -168,21 +172,34 @@ func (c *Collector) CollectForNodes(
 		}
 	}
 
-	// 6. Convert to WorkloadInfo slice, sort by namespace then name.
+	// 6. Convert to WorkloadInfo slice, compute overcommit, apply thresholds, sort.
 	result := make([]model.WorkloadInfo, 0, len(aggs))
 	for k, v := range aggs {
-		result = append(result, model.WorkloadInfo{
-			Namespace:       k.namespace,
-			Kind:            k.kind,
-			Name:            k.name,
-			PodCount:        v.podCount,
-			CPURequestCores: float64(v.cpuRequestMilli) / 1000.0,
-			CPULimitCores:   float64(v.cpuLimitMilli) / 1000.0,
-			CPUUsageCores:   float64(v.cpuUsageMilli) / 1000.0,
-			MemRequestGB:    v.memRequestGB,
-			MemLimitGB:      v.memLimitGB,
-			MemUsageGB:      v.memUsageGB,
-		})
+		cpuReq := float64(v.cpuRequestMilli) / 1000.0
+		cpuLim := float64(v.cpuLimitMilli) / 1000.0
+
+		wl := model.WorkloadInfo{
+			Namespace:        k.namespace,
+			Kind:             k.kind,
+			Name:             k.name,
+			PodCount:         v.podCount,
+			CPURequestCores:  cpuReq,
+			CPULimitCores:    cpuLim,
+			CPUUsageCores:    float64(v.cpuUsageMilli) / 1000.0,
+			MemRequestGB:     v.memRequestGB,
+			MemLimitGB:       v.memLimitGB,
+			MemUsageGB:       v.memUsageGB,
+			CPUOvercommitPct: overcommitPct(cpuReq, cpuLim),
+			MemOvercommitPct: overcommitPct(v.memRequestGB, v.memLimitGB),
+		}
+
+		// Apply overcommit thresholds. When both are set, a workload must
+		// exceed BOTH thresholds to be included (logical AND).
+		if !passesOvercommitThresholds(wl, cfg) {
+			continue
+		}
+
+		result = append(result, wl)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -196,6 +213,32 @@ func (c *Collector) CollectForNodes(
 	})
 
 	return result, nil
+}
+
+// overcommitPct returns the overcommit percentage (limit - request) / request * 100.
+// Returns -1 when request is zero (not applicable).
+func overcommitPct(request, limit float64) float64 {
+	if request <= 0 {
+		return -1
+	}
+	return (limit - request) / request * 100.0
+}
+
+// passesOvercommitThresholds reports whether a workload satisfies the overcommit
+// thresholds configured in cfg. When both CPU and memory thresholds are set,
+// the workload must exceed both (logical AND). When neither is set, all pass.
+func passesOvercommitThresholds(wl model.WorkloadInfo, cfg model.AnalyzeConfig) bool {
+	if cfg.CPUOvercommitSet {
+		if wl.CPUOvercommitPct < 0 || wl.CPUOvercommitPct < cfg.CPUOvercommit {
+			return false
+		}
+	}
+	if cfg.MemOvercommitSet {
+		if wl.MemOvercommitPct < 0 || wl.MemOvercommitPct < cfg.MemOvercommit {
+			return false
+		}
+	}
+	return true
 }
 
 // resolveNodes returns the set of node names matching the analyze config.

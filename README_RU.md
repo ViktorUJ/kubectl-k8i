@@ -284,13 +284,20 @@ kubectl k8i --namespace monitoring --group-by taint
 | `--labels SELECTOR`           | Анализировать воркloады на узлах по label selector              |              |
 | `--taints KEY[=VALUE]`        | Анализировать воркloады на узлах с данным taint                 |              |
 | `--autoscaler VALUE`          | Анализировать воркloады на узлах данного автоскейлера (`karpenter`, `cluster-autoscaler`, `spotio`, `x`) | |
+| `--namespace NAME`            | Показать только воркloады из данного namespace (комбинируется с любым селектором узлов) | |
 | `--exclude-namespace NAME`    | Исключить namespace из вывода (флаг можно указывать несколько раз) |           |
+| `--cpu-overcommit PERCENT`    | Показать только воркloады, у которых лимит CPU превышает реквест более чем на этот процент | |
+| `--mem-overcommit PERCENT`    | Показать только воркloады, у которых лимит памяти превышает реквест более чем на этот процент | |
 | `--output, -o FORMAT`         | Формат вывода: `table`, `json`, `yaml`                          | `table`      |
 | `--color true\|false`         | Принудительно включить или выключить ANSI-цвета                 | `auto`       |
 | `--context CONTEXT`           | Kubernetes-контекст                                             |              |
 | `--debug`                     | Включить отладочный вывод в stderr                              | `false`      |
 
 Необходимо указать ровно один из флагов: `--node`, `--labels`, `--taints` или `--autoscaler`.
+
+Флаг `--namespace` опционален и комбинируется с любым селектором узлов, чтобы показать только воркloады из указанного namespace.
+
+Флаги `--cpu-overcommit` и `--mem-overcommit` фильтруют вывод, оставляя только воркloады, у которых лимит превышает реквест более чем на указанный процент. Процент оверкоммита считается как `(limit - request) / request * 100`. Если заданы оба флага, воркload должен превышать оба порога одновременно. Воркloады с нулевым реквестом (оверкоммит не определён) исключаются, если соответствующий порог задан.
 
 Результаты сортируются по namespace → тип → имя.
 
@@ -309,7 +316,22 @@ kubectl k8i analyze --taints 'dedicated=gpu'
 # Анализ воркloadов на всех узлах Karpenter
 kubectl k8i analyze --autoscaler karpenter
 
-# Анализ воркloadов на узлах EKS nodegroup (CAS)
+# Анализ только воркloadов из namespace "default" на узлах Karpenter
+kubectl k8i analyze --autoscaler karpenter --namespace default
+
+# Показать только воркloады, у которых лимит CPU превышает реквест более чем на 100%
+kubectl k8i analyze --autoscaler karpenter --cpu-overcommit 100
+
+# Показать только воркloады с оверкоммитом памяти выше 50%
+kubectl k8i analyze --node ip-10-0-1-100 --mem-overcommit 50
+
+# Показать воркloады с оверкоммитом ОДНОВРЕМЕННО по cpu (>100%) и памяти (>50%)
+kubectl k8i analyze --autoscaler karpenter --cpu-overcommit 100 --mem-overcommit 50
+
+# Оверкоммит памяти выше 50%, с исключением namespace kube-system
+kubectl k8i analyze --autoscaler karpenter --mem-overcommit 50 --exclude-namespace kube-system
+
+# Анализ воркloadов на узлах EKS nodegroup (Cluster Autoscaler)
 kubectl k8i analyze --autoscaler cluster-autoscaler
 
 # Анализ воркloadов на узлах Spot.io, исключить системные namespace
@@ -327,16 +349,42 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
 kubectl k8i analyze --autoscaler karpenter -o yaml
 ```
 
+### Комбинирование селектора узлов с `--namespace`
+
+Флаг `--namespace` сужает вывод до одного namespace, сохраняя при этом выбор узлов.
+Это удобно, когда нужно увидеть, сколько ресурсов потребляет конкретное приложение
+(namespace) на определённой группе узлов.
+
+```bash
+# Показать все воркloады из namespace "default", запущенные на узлах под управлением Karpenter,
+# с их requests, limits и текущим потреблением
+kubectl k8i analyze --autoscaler karpenter --namespace default
+```
+
+Как это работает:
+
+1. `--autoscaler karpenter` выбирает все Ready-узлы под управлением Karpenter.
+2. `--namespace default` оставляет только поды из namespace `default`, запущенные на этих узлах.
+3. Поды группируются по объекту верхнего уровня (Deployment, StatefulSet, DaemonSet или standalone Pod),
+   а их CPU/память (requests, limits, usage) агрегируются по каждому воркloаду.
+
+Автодополнение по TAB работает для обоих флагов — после `--autoscaler` предлагаются допустимые значения,
+после `--namespace` — список namespace кластера.
+
 ### Формат таблицы analyze
 
 ```
-NAMESPACE            KIND         NAME                                PODS  CPU req/lim/use    MEM req/lim/use GB
-                                                                            (cores)
-========================================================================================
-production           Deployment   api-server                             3  0.75/1.50/0.42     1.00/2.00/0.65
-production           StatefulSet  postgres                               2  0.50/1.00/0.31     2.00/4.00/1.80
-kube-system          DaemonSet    aws-node                               1  0.02/0.00/0.01     0.03/0.00/0.02
+NAMESPACE            KIND         NAME                                PODS  CPU req/lim/use    MEM req/lim/use GB  CPU OC% MEM OC%
+                                                                            (cores)                               (lim/req) (lim/req)
+====================================================================================================================================
+production           Deployment   api-server                             3  0.75/1.50/0.42     1.00/2.00/0.65     100%    100%
+production           StatefulSet  postgres                               2  0.50/1.00/0.31     2.00/4.00/1.80     100%    100%
+kube-system          DaemonSet    aws-node                               1  0.02/0.00/0.01     0.03/0.00/0.02     0%      0%
 ```
+
+Колонки `CPU OC%` и `MEM OC%` показывают процент оверкоммита — насколько лимит превышает
+реквест, считается как `(limit - request) / request * 100`. Значение `n/a` означает,
+что реквест равен нулю (оверкоммит не определён).
 
 ### JSON-вывод analyze
 
@@ -354,9 +402,11 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
     "cpu_request_cores": 0.75,
     "cpu_limit_cores": 1.5,
     "cpu_usage_cores": 0.42,
+    "cpu_overcommit_pct": 100,
     "mem_request_gb": 1.0,
     "mem_limit_gb": 2.0,
-    "mem_usage_gb": 0.65
+    "mem_usage_gb": 0.65,
+    "mem_overcommit_pct": 100
   }
 ]
 ```

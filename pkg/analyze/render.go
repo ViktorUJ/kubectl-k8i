@@ -37,18 +37,18 @@ func RenderTable(w io.Writer, workloads []model.WorkloadInfo, cfg RenderConfig) 
 
 // renderAnalyzeHeader writes the 2-line header for the analyze table.
 func renderAnalyzeHeader(w io.Writer) {
-	_, _ = fmt.Fprintf(w, "%-20s %-12s %-35s %5s  %-17s  %-17s\n",
+	_, _ = fmt.Fprintf(w, "%-20s %-12s %-35s %5s  %-17s  %-17s  %-7s %-7s\n",
 		"NAMESPACE", "KIND", "NAME", "PODS",
-		"CPU req/lim/use", "MEM req/lim/use GB")
-	_, _ = fmt.Fprintf(w, "%-20s %-12s %-35s %5s  %-17s  %-17s\n",
-		"", "", "", "", "(cores)", "")
+		"CPU req/lim/use", "MEM req/lim/use GB", "CPU OC%", "MEM OC%")
+	_, _ = fmt.Fprintf(w, "%-20s %-12s %-35s %5s  %-17s  %-17s  %-7s %-7s\n",
+		"", "", "", "", "(cores)", "", "(lim/req)", "(lim/req)")
 }
 
 // renderSeparator writes an equals-sign separator.
 func renderSeparator(w io.Writer, termWidth int) {
 	width := termWidth
 	if width <= 0 {
-		width = 120
+		width = 140
 	}
 	_, _ = fmt.Fprintf(w, "%s\n", strings.Repeat("=", width))
 }
@@ -78,8 +78,18 @@ func renderWorkloadRow(w io.Writer, wl model.WorkloadInfo, cc color.ColorConfig)
 	cpuPad := cpuCombo + strings.Repeat(" ", max(0, 17-displayWidth(cpuCombo)))
 	memPad := memCombo + strings.Repeat(" ", max(0, 17-displayWidth(memCombo)))
 
-	_, _ = fmt.Fprintf(w, "%-20s %-12s %-35s %5d  %s  %s\n",
-		ns, kind, name, wl.PodCount, cpuPad, memPad)
+	_, _ = fmt.Fprintf(w, "%-20s %-12s %-35s %5d  %s  %s  %-7s %-7s\n",
+		ns, kind, name, wl.PodCount, cpuPad, memPad,
+		formatOvercommit(wl.CPUOvercommitPct), formatOvercommit(wl.MemOvercommitPct))
+}
+
+// formatOvercommit formats an overcommit percentage for display.
+// A negative value (request is zero) renders as "n/a".
+func formatOvercommit(pct float64) string {
+	if pct < 0 {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.0f%%", pct)
 }
 
 // truncate truncates s to maxLen runes, appending "…" if needed.

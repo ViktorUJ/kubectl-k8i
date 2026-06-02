@@ -274,13 +274,20 @@ kubectl k8i --namespace monitoring --group-by taint
 | `--labels SELECTOR`           | Analyze workloads on nodes matching this label selector  |          |
 | `--taints KEY[=VALUE]`        | Analyze workloads on nodes with this taint               |          |
 | `--autoscaler VALUE`          | Analyze workloads on nodes managed by this autoscaler (`karpenter`, `cluster-autoscaler`, `spotio`, `x`) | |
+| `--namespace NAME`            | Show only workloads from this namespace (combines with any node selector) | |
 | `--exclude-namespace NAME`    | Exclude namespace from output (repeatable)               |          |
+| `--cpu-overcommit PERCENT`    | Show only workloads whose CPU limit exceeds request by more than this percent | |
+| `--mem-overcommit PERCENT`    | Show only workloads whose memory limit exceeds request by more than this percent | |
 | `--output, -o FORMAT`         | Output format: `table`, `json`, `yaml`                   | `table`  |
 | `--color true\|false`         | Force enable or disable ANSI colors                      | `auto`   |
 | `--context CONTEXT`           | Kubernetes context to use                                |          |
 | `--debug`                     | Enable debug output to stderr                            | `false`  |
 
 Exactly one of `--node`, `--labels`, `--taints`, or `--autoscaler` must be provided.
+
+The `--namespace` flag is optional and combines with any node selector to show only workloads from that namespace.
+
+The `--cpu-overcommit` and `--mem-overcommit` flags filter the output to workloads whose limit exceeds the request by more than the given percentage. The overcommit percentage is computed as `(limit - request) / request * 100`. When both flags are set, a workload must exceed both thresholds to be shown. Workloads with a zero request (overcommit not applicable) are excluded when the corresponding threshold is set.
 
 Results are sorted by namespace → kind → name.
 
@@ -299,7 +306,22 @@ kubectl k8i analyze --taints 'dedicated=gpu'
 # Analyze workloads on all Karpenter-managed nodes
 kubectl k8i analyze --autoscaler karpenter
 
-# Analyze workloads on EKS nodegroup (CAS) nodes
+# Analyze only the "default" namespace workloads on Karpenter nodes
+kubectl k8i analyze --autoscaler karpenter --namespace default
+
+# Show only workloads whose CPU limit exceeds request by more than 100%
+kubectl k8i analyze --autoscaler karpenter --cpu-overcommit 100
+
+# Show only workloads with memory overcommit above 50%
+kubectl k8i analyze --node ip-10-0-1-100 --mem-overcommit 50
+
+# Show workloads that overcommit BOTH cpu (>100%) and memory (>50%)
+kubectl k8i analyze --autoscaler karpenter --cpu-overcommit 100 --mem-overcommit 50
+
+# Memory overcommit above 50%, excluding the kube-system namespace
+kubectl k8i analyze --autoscaler karpenter --mem-overcommit 50 --exclude-namespace kube-system
+
+# Analyze workloads on EKS nodegroup (Cluster Autoscaler) nodes
 kubectl k8i analyze --autoscaler cluster-autoscaler
 
 # Analyze workloads on Spot.io nodes, exclude system namespaces
@@ -317,16 +339,42 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
 kubectl k8i analyze --autoscaler karpenter -o yaml
 ```
 
+### Combining a node selector with `--namespace`
+
+The `--namespace` flag narrows the output to a single namespace while keeping the node
+selection intact. This is useful when you want to see what a specific application namespace
+is consuming on a particular group of nodes.
+
+```bash
+# Show all workloads from the "default" namespace that run on Karpenter-managed nodes,
+# with their requests, limits, and current usage
+kubectl k8i analyze --autoscaler karpenter --namespace default
+```
+
+How it works:
+
+1. `--autoscaler karpenter` selects every Ready node managed by Karpenter.
+2. `--namespace default` keeps only the pods from the `default` namespace running on those nodes.
+3. The pods are grouped by their top-level owner (Deployment, StatefulSet, DaemonSet, or standalone Pod)
+   and their CPU/memory requests, limits, and usage are aggregated per workload.
+
+Tab completion works for both flags — press TAB after `--autoscaler` to get the valid values,
+and after `--namespace` to get the list of cluster namespaces.
+
 ### Analyze table output format
 
 ```
-NAMESPACE            KIND         NAME                                PODS  CPU req/lim/use    MEM req/lim/use GB
-                                                                            (cores)
-========================================================================================
-production           Deployment   api-server                             3  0.75/1.50/0.42     1.00/2.00/0.65
-production           StatefulSet  postgres                               2  0.50/1.00/0.31     2.00/4.00/1.80
-kube-system          DaemonSet    aws-node                               1  0.02/0.00/0.01     0.03/0.00/0.02
+NAMESPACE            KIND         NAME                                PODS  CPU req/lim/use    MEM req/lim/use GB  CPU OC% MEM OC%
+                                                                            (cores)                               (lim/req) (lim/req)
+====================================================================================================================================
+production           Deployment   api-server                             3  0.75/1.50/0.42     1.00/2.00/0.65     100%    100%
+production           StatefulSet  postgres                               2  0.50/1.00/0.31     2.00/4.00/1.80     100%    100%
+kube-system          DaemonSet    aws-node                               1  0.02/0.00/0.01     0.03/0.00/0.02     0%      0%
 ```
+
+The `CPU OC%` and `MEM OC%` columns show the overcommit percentage — how much the limit
+exceeds the request, computed as `(limit - request) / request * 100`. A value of `n/a`
+means the request is zero (overcommit is undefined).
 
 ### Analyze JSON output
 
@@ -344,9 +392,11 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
     "cpu_request_cores": 0.75,
     "cpu_limit_cores": 1.5,
     "cpu_usage_cores": 0.42,
+    "cpu_overcommit_pct": 100,
     "mem_request_gb": 1.0,
     "mem_limit_gb": 2.0,
-    "mem_usage_gb": 0.65
+    "mem_usage_gb": 0.65,
+    "mem_overcommit_pct": 100
   }
 ]
 ```

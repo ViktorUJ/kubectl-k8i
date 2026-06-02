@@ -25,7 +25,10 @@ func newAnalyzeCmd() *cobra.Command {
 		labelsFlag            string
 		taintsFlag            string
 		autoscalerFlag        string
+		namespaceFlag         string
 		excludeNamespaceFlags []string
+		cpuOvercommitFlag     float64
+		memOvercommitFlag     float64
 		outputFlag            string
 		colorFlag             string
 		debugFlag             bool
@@ -34,8 +37,8 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "analyze",
 		Short: "Analyze workloads running on selected nodes",
-		Long: `Analyze shows all workloads (Deployments, StatefulSets, DaemonSets, standalone Pods)
-running on the nodes selected by --node, --labels, --taints, or --autoscaler.
+		Long: `The analyze command shows all workloads (Deployments, StatefulSets, DaemonSets,
+standalone Pods) running on the nodes selected by --node, --labels, --taints, or --autoscaler.
 
 For each workload the command displays:
   - namespace, kind, name
@@ -44,7 +47,14 @@ For each workload the command displays:
   - aggregated Memory requests / limits / usage (GB)
 
 Results are sorted by namespace, then kind, then name.
-Exactly one of --node, --labels, --taints, or --autoscaler must be provided.`,
+Exactly one of --node, --labels, --taints, or --autoscaler must be provided.
+The --namespace flag may be combined with any selector to show only workloads
+from that namespace.
+
+Overcommit thresholds (--cpu-overcommit, --mem-overcommit) filter the output to
+workloads whose limit exceeds the request by more than the given percentage.
+Overcommit % = (limit - request) / request * 100. When both thresholds are set,
+a workload must exceed both to be shown.`,
 		Example: `  # Analyze workloads on a specific node
   kubectl k8i analyze --node ip-10-0-1-100
 
@@ -57,8 +67,20 @@ Exactly one of --node, --labels, --taints, or --autoscaler must be provided.`,
   # Analyze workloads on all Karpenter-managed nodes
   kubectl k8i analyze --autoscaler karpenter
 
-  # Analyze workloads on EKS nodegroup (CAS) nodes, exclude system namespaces
-  kubectl k8i analyze --autoscaler cas --exclude-namespace kube-system
+  # Analyze only the "default" namespace workloads on Karpenter nodes
+  kubectl k8i analyze --autoscaler karpenter --namespace default
+
+  # Analyze workloads on EKS nodegroup (Cluster Autoscaler) nodes, exclude system namespaces
+  kubectl k8i analyze --autoscaler cluster-autoscaler --exclude-namespace kube-system
+
+  # Show only workloads whose CPU limit exceeds request by more than 100%
+  kubectl k8i analyze --autoscaler karpenter --cpu-overcommit 100
+
+  # Show only workloads with memory overcommit above 50%
+  kubectl k8i analyze --node ip-10-0-1-100 --mem-overcommit 50
+
+  # Show workloads that overcommit BOTH cpu (>100%) and memory (>50%)
+  kubectl k8i analyze --autoscaler karpenter --cpu-overcommit 100 --mem-overcommit 50
 
   # Exclude noisy system namespaces
   kubectl k8i analyze --labels 'worker-type=spot' \
@@ -104,7 +126,12 @@ Exactly one of --node, --labels, --taints, or --autoscaler must be provided.`,
 				Labels:            labelsFlag,
 				Taints:            taintsFlag,
 				Autoscaler:        autoscalerFlag,
+				Namespace:         namespaceFlag,
 				ExcludeNamespaces: excludeNamespaceFlags,
+				CPUOvercommit:     cpuOvercommitFlag,
+				CPUOvercommitSet:  cmd.Flags().Changed("cpu-overcommit"),
+				MemOvercommit:     memOvercommitFlag,
+				MemOvercommitSet:  cmd.Flags().Changed("mem-overcommit"),
 				Output:            outputFlag,
 				Debug:             debugFlag,
 			}
@@ -128,8 +155,11 @@ Exactly one of --node, --labels, --taints, or --autoscaler must be provided.`,
 	cmd.Flags().StringVar(&nodeFlag, "node", "", "Analyze workloads on this specific node")
 	cmd.Flags().StringVar(&labelsFlag, "labels", "", "Analyze workloads on nodes matching this label selector")
 	cmd.Flags().StringVar(&taintsFlag, "taints", "", "Analyze workloads on nodes with this taint (key or key=value)")
-	cmd.Flags().StringVar(&autoscalerFlag, "autoscaler", "", "Analyze workloads on nodes managed by this autoscaler (karpenter, cas, spotio, x)")
+	cmd.Flags().StringVar(&autoscalerFlag, "autoscaler", "", "Analyze workloads on nodes managed by this autoscaler (karpenter, cluster-autoscaler, spotio, x)")
+	cmd.Flags().StringVar(&namespaceFlag, "namespace", "", "Show only workloads from this namespace (combines with any node selector)")
 	cmd.Flags().StringArrayVar(&excludeNamespaceFlags, "exclude-namespace", nil, "Exclude namespace from output (repeatable)")
+	cmd.Flags().Float64Var(&cpuOvercommitFlag, "cpu-overcommit", 0, "Show only workloads whose CPU limit exceeds request by more than this percent")
+	cmd.Flags().Float64Var(&memOvercommitFlag, "mem-overcommit", 0, "Show only workloads whose memory limit exceeds request by more than this percent")
 	cmd.Flags().StringVarP(&outputFlag, "output", "o", "table", "Output format: table, json, yaml")
 	cmd.Flags().StringVar(&colorFlag, "color", "auto", "Force enable or disable ANSI colors (true/false/auto)")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Enable debug output to stderr")
@@ -142,6 +172,9 @@ Exactly one of --node, --labels, --taints, or --autoscaler must be provided.`,
 		return []string{"karpenter", "cluster-autoscaler", "spotio", "x"}, cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("exclude-namespace", completeNamespaces)
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completeNamespaces)
+	_ = cmd.RegisterFlagCompletionFunc("cpu-overcommit", completeOvercommitThresholds)
+	_ = cmd.RegisterFlagCompletionFunc("mem-overcommit", completeOvercommitThresholds)
 	_ = cmd.RegisterFlagCompletionFunc("output", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"table", "json", "yaml"}, cobra.ShellCompDirectiveNoFileComp
 	})
@@ -198,6 +231,11 @@ func runAnalyzeCmd(ctx context.Context, cfg model.AnalyzeConfig) error {
 		})
 		return nil
 	}
+}
+
+// completeOvercommitThresholds suggests common overcommit threshold percentages.
+func completeOvercommitThresholds(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return []string{"50", "100", "200", "300", "500"}, cobra.ShellCompDirectiveNoFileComp
 }
 
 // completeNodeNames returns available node names for tab completion.

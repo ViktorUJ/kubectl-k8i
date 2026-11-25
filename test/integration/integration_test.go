@@ -670,12 +670,11 @@ func TestAutoscalerSorting_FullPipeline(t *testing.T) {
 		assert.LessOrEqual(t, nodes[i].Autoscaler, nodes[i+1].Autoscaler)
 	}
 
-	// Render and verify autoscaler column is present
+	// Render: all nodes present (autoscaler is a sort/filter key, not a rendered column)
 	out := renderToString(nodes, defaultRenderConfig())
-	assert.Contains(t, out, "AUTOSCALER")
-	assert.Contains(t, out, "karpenter")
-	assert.Contains(t, out, "spotio")
-	assert.Contains(t, out, "cluster-autoscaler")
+	for _, n := range nodes {
+		assert.Contains(t, out, n.Name)
+	}
 }
 
 func TestCompleteOutputFormat(t *testing.T) {
@@ -689,41 +688,30 @@ func TestCompleteOutputFormat(t *testing.T) {
 	cfg.Sort = "pool=asc"
 	out := renderToString(nodes, cfg)
 
-	// Verify timestamp
-	assert.Contains(t, out, "Data collected at:")
-	// Verify filter annotation
-	assert.Contains(t, out, "Filter applied: ec2_type=spot")
-	// Verify sort annotation
-	assert.Contains(t, out, "Sort applied: pool=asc")
+	// Timestamp, filter and sort annotations are no longer rendered
+	assert.NotContains(t, out, "Data collected at:")
+	assert.NotContains(t, out, "Filter applied:")
+	assert.NotContains(t, out, "Sort applied:")
 	// Verify header
 	assert.Contains(t, out, "NODE")
 	assert.Contains(t, out, "PODS")
-	assert.Contains(t, out, "CREQ")
-	assert.Contains(t, out, "CLIM")
-	assert.Contains(t, out, "CUSE")
-	assert.Contains(t, out, "CCAP")
-	assert.Contains(t, out, "C%")
-	assert.Contains(t, out, "MREQ")
-	assert.Contains(t, out, "MLIM")
-	assert.Contains(t, out, "MUSE")
-	assert.Contains(t, out, "MCAP")
-	assert.Contains(t, out, "M%")
-	assert.Contains(t, out, "EC2")
-	assert.Contains(t, out, "TYPE")
-	assert.Contains(t, out, "SPOT")
-	assert.Contains(t, out, "ARCH")
-	assert.Contains(t, out, "ZN")
-	assert.Contains(t, out, "POOL")
-	assert.Contains(t, out, "NODECLAIM")
-	assert.Contains(t, out, "AUTOSCALER")
-	assert.Contains(t, out, "AGE")
-	assert.Contains(t, out, "TAINTS")
-	// Verify separator (dashes)
-	assert.Contains(t, out, "---")
+	assert.Contains(t, out, "CPU cores")
+	assert.Contains(t, out, "CPU")
+	assert.Contains(t, out, "LOAD")
+	assert.Contains(t, out, "MEMORY GB")
+	assert.Contains(t, out, "MEM")
+	assert.Contains(t, out, "Node info")
+	assert.Contains(t, out, "used/")
+	assert.Contains(t, out, "req/lim/")
+	assert.Contains(t, out, "use/total")
+	assert.Contains(t, out, "ec2/type/spot/arch/")
+	assert.Contains(t, out, "zone/pool/nodeclaim/age/taints")
+	// Verify separator (equals signs)
+	assert.Contains(t, out, "====")
 	// Verify data rows
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	// At least: timestamp + filter + sort + header + separator + 4 data rows = 9 lines
-	assert.GreaterOrEqual(t, len(lines), 9)
+	// At least: 3 header lines + separator + 4 data rows = 8 lines
+	assert.GreaterOrEqual(t, len(lines), 8)
 }
 
 func TestResourceAggregation_FullPipeline(t *testing.T) {
@@ -820,7 +808,7 @@ func TestNoHeadersMode(t *testing.T) {
 	assert.NotContains(t, out, "NODE")
 	assert.NotContains(t, out, "PODS")
 	assert.NotContains(t, out, "Data collected at:")
-	assert.NotContains(t, out, "---")
+	assert.NotContains(t, out, "====")
 
 	// Should have exactly as many lines as nodes
 	lines := strings.Split(strings.TrimSpace(out), "\n")

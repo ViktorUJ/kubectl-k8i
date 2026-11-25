@@ -13,6 +13,7 @@
 - **Фильтрация и сортировка** по любому атрибуту или столбцу
 - **Группировка по taints** для идентификации логических групп узлов
 - **Анализ воркloadов**: показывает все воркloады (Deployment, StatefulSet, DaemonSet, Pod) на выбранных узлах с агрегированными данными CPU/памяти
+- **Режим watch**: постоянно обновляемый экран с узлами не в Ready, подами, которые не Ready и не Completed, и Warning-событиями кластера
 - **Множественные форматы вывода**: table (по умолчанию), JSON, YAML
 - **Адаптивная таблица**: столбцы подстраиваются под ширину терминала
 - **Без внешних зависимостей**: автономный бинарный файл, не требует jq/awk/sed/grep
@@ -411,6 +412,76 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
 ]
 ```
 
+## Подкоманда watch
+
+`kubectl k8i watch` не завершается и обновляет экран каждые `--interval`, показывая только то, что требует
+внимания. Выход — `Ctrl+C`. Все секции **выключены по умолчанию**, нужно включить хотя бы одну.
+
+- `--nodes` — узлы, у которых условие `Ready` не `True` (`NotReady` / `Unknown`), с активными pressure-условиями
+  (`MemoryPressure`, `DiskPressure`, `PIDPressure`, `NetworkUnavailable`) и причиной/сообщением.
+- `--pods` — поды, которые не Ready и не Completed: `Pending`, `Failed`, `CrashLoopBackOff`, `ImagePullBackOff`,
+  `Init:*`, `Running`, но не готов, `Terminating` и т.д. Поды в `Succeeded` пропускаются.
+  Сначала запрашивается список namespace, затем поды по каждому namespace (до 10 параллельно).
+- `--events` — `Warning`-события всего кластера за последние `--events-since` (сначала новые, показывается до 50).
+
+Ошибки API не останавливают команду: они выводятся в секции `ERRORS`, затронутая секция помечается как
+`unavailable` (а не как «всё хорошо»), и на следующем обновлении данные запрашиваются заново.
+
+### Флаги watch
+
+| Флаг | По умолчанию | Описание |
+|------|--------------|----------|
+| `--nodes` | `false` | Показывать узлы не в Ready |
+| `--pods` | `false` | Показывать поды, которые не Ready и не Completed |
+| `--events` | `false` | Показывать Warning-события кластера |
+| `--namespaces` | все | Namespace для `--pods` (через запятую или повтором флага). Требует `--pods` |
+| `--interval` | `5s` | Интервал обновления (минимум `1s`) |
+| `--events-since` | `15m` | Показывать только Warning-события за это окно (`0` — без ограничения) |
+| `--context` | текущий | Kubernetes-контекст |
+| `--color` | `auto` | Принудительно включить или выключить ANSI-цвета (`true`/`false`/`auto`) |
+
+### Примеры watch
+
+```bash
+# Следить за узлами не в Ready
+kubectl k8i watch --nodes
+
+# Следить за проблемными подами во всех namespace
+kubectl k8i watch --pods
+
+# Следить за проблемными подами только в выбранных namespace
+kubectl k8i watch --pods --namespaces default,production
+
+# Следить за всем, обновление каждые 10 секунд
+kubectl k8i watch --nodes --pods --events --interval 10s
+
+# Warning-события за последний час
+kubectl k8i watch --events --events-since 1h
+```
+
+### Формат вывода watch
+
+```
+k8i watch | context: prod-cluster | every 5s | 2026-11-25 12:00:00 | Ctrl+C to exit
+========================================================================================================================
+
+NOT READY NODES: 1 of 10
+NAME                        STATUS    SINCE  CONDITIONS      REASON           MESSAGE
+ip-10-0-1-100.ec2.internal  NotReady  5m     MemoryPressure  KubeletNotReady  container runtime network not ready
+
+PODS NOT READY: 3 (120 pods in 8 namespaces)
+NAMESPACE  NAME               READY  STATUS                 RESTARTS  NODE          AGE
+default    web-1              0/1    CrashLoopBackOff       7         node-2        1h0m
+prod       api-1              0/1    Pending                0         <none>        2m
+prod       worker-7d9f-x2k4q  0/2    Init:ImagePullBackOff  0         ip-10-0-2-15  12m
+
+WARNING EVENTS (last 15m): 1
+LAST SEEN  COUNT  NAMESPACE  OBJECT     REASON            MESSAGE
+1m         4      prod       Pod/api-1  FailedScheduling  0/10 nodes available
+```
+
+В терминале экран очищается перед каждым обновлением; при перенаправлении вывода обновления дописываются в конец.
+
 ## Форматы вывода
 
 ### Таблица (по умолчанию)
@@ -495,7 +566,7 @@ kubectl k8i -o yaml
 
 ### Требования
 
-- [Go 1.26+](https://go.dev/dl/)
+- [Go 1.27+](https://go.dev/dl/)
 - [golangci-lint](https://golangci-lint.run/welcome/install/)
 - [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) — проверка уязвимых зависимостей
 - [gosec](https://github.com/securego/gosec) — статический анализ безопасности

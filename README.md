@@ -13,6 +13,7 @@ A kubectl plugin that displays detailed Kubernetes node resource information wit
 - **Filter and sort** by any attribute or column
 - **Group by taints** to identify logical node groups
 - **Workload analysis**: show all workloads (Deployments, StatefulSets, DaemonSets, Pods) running on selected nodes with aggregated CPU/memory data
+- **Watch mode**: a continuously refreshing view of not-ready nodes, pods that are neither Ready nor Completed, and cluster Warning events
 - **Multiple output formats**: table (default), JSON, YAML
 - **Terminal-adaptive rendering**: table columns adjust to terminal width
 - **Zero external dependencies**: standalone binary, no jq/awk/sed/grep required
@@ -401,6 +402,76 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
 ]
 ```
 
+## Watch subcommand
+
+`kubectl k8i watch` keeps running and refreshes the screen every `--interval`, showing only what needs
+attention. Press `Ctrl+C` to exit. Every section is **off by default**; enable at least one of them.
+
+- `--nodes`: nodes whose `Ready` condition is not `True` (`NotReady` / `Unknown`), with active pressure
+  conditions (`MemoryPressure`, `DiskPressure`, `PIDPressure`, `NetworkUnavailable`) and the reason/message.
+- `--pods`: pods that are neither Ready nor Completed: `Pending`, `Failed`, `CrashLoopBackOff`,
+  `ImagePullBackOff`, `Init:*`, `Running` but not ready, `Terminating`, and so on. `Succeeded` pods are skipped.
+  The namespace list is fetched first, then pods are listed per namespace (up to 10 in parallel).
+- `--events`: cluster-wide `Warning` events last seen within `--events-since` (newest first, up to 50 shown).
+
+API errors do not stop the command. They are listed in the `ERRORS` section, an affected section is
+shown as `unavailable` (never as healthy), and the data is requested again on the next refresh.
+
+### Watch flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--nodes` | `false` | Show nodes that are not Ready |
+| `--pods` | `false` | Show pods that are neither Ready nor Completed |
+| `--events` | `false` | Show cluster Warning events |
+| `--namespaces` | all | Namespaces to watch for `--pods` (comma-separated or repeatable). Requires `--pods` |
+| `--interval` | `5s` | Refresh interval (minimum `1s`) |
+| `--events-since` | `15m` | Show only Warning events seen within this window (`0` = no limit) |
+| `--context` | current | Kubernetes context to use |
+| `--color` | `auto` | Force enable or disable ANSI colors (`true`/`false`/`auto`) |
+
+### Watch examples
+
+```bash
+# Watch not-ready nodes
+kubectl k8i watch --nodes
+
+# Watch not-ready pods in all namespaces
+kubectl k8i watch --pods
+
+# Watch not-ready pods only in selected namespaces
+kubectl k8i watch --pods --namespaces default,production
+
+# Watch everything, refresh every 10 seconds
+kubectl k8i watch --nodes --pods --events --interval 10s
+
+# Warning events from the last hour
+kubectl k8i watch --events --events-since 1h
+```
+
+### Watch output format
+
+```
+k8i watch | context: prod-cluster | every 5s | 2026-11-25 12:00:00 | Ctrl+C to exit
+========================================================================================================================
+
+NOT READY NODES: 1 of 10
+NAME                        STATUS    SINCE  CONDITIONS      REASON           MESSAGE
+ip-10-0-1-100.ec2.internal  NotReady  5m     MemoryPressure  KubeletNotReady  container runtime network not ready
+
+PODS NOT READY: 3 (120 pods in 8 namespaces)
+NAMESPACE  NAME               READY  STATUS                 RESTARTS  NODE          AGE
+default    web-1              0/1    CrashLoopBackOff       7         node-2        1h0m
+prod       api-1              0/1    Pending                0         <none>        2m
+prod       worker-7d9f-x2k4q  0/2    Init:ImagePullBackOff  0         ip-10-0-2-15  12m
+
+WARNING EVENTS (last 15m): 1
+LAST SEEN  COUNT  NAMESPACE  OBJECT     REASON            MESSAGE
+1m         4      prod       Pod/api-1  FailedScheduling  0/10 nodes available
+```
+
+On a terminal the screen is cleared before each refresh. When stdout is redirected, refreshes are appended.
+
 ## Output Formats
 
 ### Table (default)
@@ -485,7 +556,7 @@ kubectl k8i -o yaml
 
 ### Prerequisites
 
-- [Go 1.26+](https://go.dev/dl/)
+- [Go 1.27+](https://go.dev/dl/)
 - [golangci-lint](https://golangci-lint.run/welcome/install/)
 - [goreleaser](https://goreleaser.com/install/) (optional, for local release builds)
 

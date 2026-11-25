@@ -3,10 +3,10 @@
 # CVE-2026-42010, CVE-2026-33845, CVE-2026-33846, CVE-2026-42011, CVE-2026-3833 (gnutls28)
 # CVE-2026-45186 (expat), CVE-2026-4105 (systemd), CVE-2025-12781 (python3.13)
 # CVE-2019-6110, CVE-2020-15778 (openssh-client)
-FROM golang:1.26-alpine AS tools
+FROM golang:1.27-alpine AS tools
 # Install gcc and musl-dev required by the race detector (CGO)
 RUN apk add --no-cache gcc musl-dev
-RUN go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
+RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest && \
     go install golang.org/x/vuln/cmd/govulncheck@latest && \
     go install github.com/securego/gosec/v2/cmd/gosec@latest
 

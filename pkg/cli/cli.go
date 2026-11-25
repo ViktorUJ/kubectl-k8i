@@ -67,9 +67,10 @@ Subcommands:
   analyze   Show all workloads running on selected nodes with aggregated
             CPU/memory requests, limits, and usage. Select nodes by name,
             label selector, or taint. Use --exclude-namespace to reduce noise.
-  watch     Keep running and continuously show not-ready nodes (--nodes),
-            pods that are neither Ready nor Completed (--pods, --namespaces),
-            and cluster Warning events (--events).
+  watch     Keep running and continuously show not-ready nodes and pods that
+            are neither Ready nor Completed (both on by default, switch off with
+            --nodes=disable / --pods=disable, limit pods with --namespaces), and
+            cluster Warning events (--events=enable).
 
 Filter format:
   --filter 'attribute=value' where attribute can be:

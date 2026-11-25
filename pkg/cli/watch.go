@@ -37,33 +37,41 @@ func newWatchCmd() *cobra.Command {
 		Long: `The watch command keeps running and refreshes the screen every --interval,
 showing only what needs attention in the cluster. Press Ctrl+C to exit.
 
-Sections (each is off by default, enable at least one):
-  --nodes    nodes whose Ready condition is not True (NotReady / Unknown),
-             with active pressure conditions and the reason/message
-  --pods     pods that are neither Ready nor Completed (Pending, Failed,
-             CrashLoopBackOff, ImagePullBackOff, Init:*, Running but not ready, ...).
+Sections are switched with --<section>=enable / --<section>=disable:
+  --nodes    (default: enable) nodes whose Ready condition is not True
+             (NotReady / Unknown), with active pressure conditions and the reason/message
+  --pods     (default: enable) pods that are neither Ready nor Completed (Pending,
+             Failed, CrashLoopBackOff, ImagePullBackOff, Init:*, Running but not ready, ...).
              The namespace list is fetched first, then pods are listed per namespace.
              Use --namespaces to limit the namespaces (default: all namespaces).
-  --events   Warning events from the whole cluster seen within --events-since
+  --events   (default: disable) Warning events from the whole cluster seen within
+             --events-since
+
+On a terminal the view is redrawn in place and only changed lines are rewritten,
+so text on unchanged lines (e.g. a pod name) can be selected and copied between
+refreshes. The last screen stays in the terminal after Ctrl+C.
 
 API errors do not stop the command: they are shown in the ERRORS section and
 the data is requested again on the next refresh.`,
-		Example: `  # Watch not-ready nodes
-  kubectl k8i watch --nodes
+		Example: `  # Watch not-ready nodes and pods (default)
+  kubectl k8i watch
 
-  # Watch not-ready pods in all namespaces
-  kubectl k8i watch --pods
+  # Only pods, without nodes
+  kubectl k8i watch --nodes=disable
 
-  # Watch not-ready pods only in selected namespaces
-  kubectl k8i watch --pods --namespaces default,production
-  kubectl k8i watch --pods --namespaces default --namespaces production
+  # Only nodes, without pods
+  kubectl k8i watch --pods=disable
 
-  # Watch everything, refresh every 10 seconds
-  kubectl k8i watch --nodes --pods --events --interval 10s
+  # Not-ready pods only in selected namespaces
+  kubectl k8i watch --namespaces default,production
+  kubectl k8i watch --namespaces default --namespaces production
 
-  # Warning events from the last hour
-  kubectl k8i watch --events --events-since 1h`,
-		Args:          cobra.NoArgs,
+  # Nodes, pods and Warning events, refresh every 10 seconds
+  kubectl k8i watch --events=enable --interval 10s
+
+  # Only Warning events from the last hour
+  kubectl k8i watch --nodes=disable --pods=disable --events=enable --events-since 1h`,
+		Args:          toggleArgsHint("nodes", "pods", "events"),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -71,14 +79,14 @@ the data is requested again on the next refresh.`,
 			if err != nil {
 				return err
 			}
-			return runWatchCmd(cmd.Context(), f, opts)
+			return runWatch(cmd.Context(), f, opts)
 		},
 	}
 
 	cmd.Flags().StringVar(&f.context, "context", "", "Kubernetes context to use")
-	cmd.Flags().BoolVar(&f.nodes, "nodes", false, "Show nodes that are not Ready")
-	cmd.Flags().BoolVar(&f.pods, "pods", false, "Show pods that are neither Ready nor Completed")
-	cmd.Flags().BoolVar(&f.events, "events", false, "Show cluster Warning events")
+	addToggleFlag(cmd, &f.nodes, "nodes", true, "Show nodes that are not Ready")
+	addToggleFlag(cmd, &f.pods, "pods", true, "Show pods that are neither Ready nor Completed")
+	addToggleFlag(cmd, &f.events, "events", false, "Show cluster Warning events")
 	cmd.Flags().StringSliceVar(&f.namespaces, "namespaces", nil, "Namespaces to watch for --pods (comma-separated or repeatable; default: all)")
 	cmd.Flags().DurationVar(&f.interval, "interval", watch.DefaultInterval, "Refresh interval (minimum 1s)")
 	cmd.Flags().DurationVar(&f.eventsSince, "events-since", watch.DefaultEventsSince, "Show only Warning events seen within this window (0 = no limit)")
@@ -102,7 +110,7 @@ the data is requested again on the next refresh.`,
 // buildWatchOptions validates the watch flags and converts them to watch.Options.
 func buildWatchOptions(f watchFlags) (watch.Options, error) {
 	if !f.nodes && !f.pods && !f.events {
-		return watch.Options{}, fmt.Errorf("nothing to watch: enable at least one of --nodes, --pods, --events")
+		return watch.Options{}, fmt.Errorf("nothing to watch: all sections are disabled, enable at least one of --nodes, --pods, --events")
 	}
 
 	var namespaces []string
@@ -115,7 +123,7 @@ func buildWatchOptions(f watchFlags) (watch.Options, error) {
 		return watch.Options{}, fmt.Errorf("--namespaces must contain at least one namespace name")
 	}
 	if len(namespaces) > 0 && !f.pods {
-		return watch.Options{}, fmt.Errorf("--namespaces can only be used together with --pods")
+		return watch.Options{}, fmt.Errorf("--namespaces has no effect with --pods=disable")
 	}
 	if f.interval < watch.MinInterval {
 		return watch.Options{}, fmt.Errorf("--interval must be at least %s, got %s", watch.MinInterval, f.interval)
@@ -158,6 +166,9 @@ func parseColorFlag(v string) *bool {
 	return nil
 }
 
+// runWatch is the watch entry point; a variable so tests can replace it.
+var runWatch = runWatchCmd
+
 // runWatchCmd connects to the cluster and runs the refresh loop until ctx is cancelled.
 func runWatchCmd(ctx context.Context, f watchFlags, opts watch.Options) error {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
@@ -171,6 +182,13 @@ func runWatchCmd(ctx context.Context, f watchFlags, opts watch.Options) error {
 	if err != nil {
 		return fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
+	// Pods are listed per namespace, so one refresh issues one request per
+	// namespace. The client-go default (QPS 5, burst 10) throttles that heavily
+	// on clusters with many namespaces and makes a refresh slower than the
+	// interval. Server-side API Priority and Fairness still protects the API server.
+	restConfig.QPS = watchClientQPS
+	restConfig.Burst = watchClientBurst
+
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create Kubernetes client: %w", err)
@@ -187,12 +205,18 @@ func runWatchCmd(ctx context.Context, f watchFlags, opts watch.Options) error {
 	collector := watch.NewCollector(clientset, watch.WatchRetryConfig())
 
 	return watch.Run(ctx, collector, opts, os.Stdout, watch.RunConfig{
-		Interval:    f.interval,
-		ClearScreen: isTTY,
+		Interval: f.interval,
+		Screen:   isTTY,
 		Render: watch.RenderConfig{
 			Color:   color.NewColorConfig(parseColorFlag(f.color)),
 			Context: contextName,
 		},
-		Width: func() int { return terminal.GetTerminalWidth(0) },
+		Size: func() (int, int) { return terminal.GetTerminalSize(0, 0) },
 	})
 }
+
+// Client-side rate limits for the watch command (see runWatchCmd).
+const (
+	watchClientQPS   = 50
+	watchClientBurst = 100
+)

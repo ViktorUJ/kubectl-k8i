@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,10 +22,12 @@ func TestWatchCmd_RegisteredWithDefaults(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "watch", cmd.Name())
 
-	for _, name := range []string{"nodes", "pods", "events"} {
+	for name, def := range map[string]string{"nodes": "enable", "pods": "enable", "events": "disable"} {
 		f := cmd.Flags().Lookup(name)
 		require.NotNil(t, f, name)
-		assert.Equal(t, "false", f.DefValue, "--%s must be disabled by default", name)
+		assert.Equal(t, def, f.DefValue, "--%s default", name)
+		assert.Equal(t, "enable|disable", f.Value.Type(), name)
+		assert.Equal(t, "enable", f.NoOptDefVal, "bare --%s means enable", name)
 	}
 	assert.Equal(t, "[]", cmd.Flags().Lookup("namespaces").DefValue, "all namespaces by default")
 	assert.Equal(t, "5s", cmd.Flags().Lookup("interval").DefValue)
@@ -32,23 +36,102 @@ func TestWatchCmd_RegisteredWithDefaults(t *testing.T) {
 	assert.NotNil(t, cmd.Flags().Lookup("color"))
 }
 
-func TestWatchCmd_NoSectionsIsError(t *testing.T) {
+// parseWatch parses args with the real watch command and returns the
+// resulting options (or the parse/validation error).
+func parseWatch(t *testing.T, args ...string) (watch.Options, error) {
+	t.Helper()
 	root := NewRootCommand()
+
+	var got watch.Options
+	orig := runWatch
+	t.Cleanup(func() { runWatch = orig })
+	runWatch = func(_ context.Context, _ watchFlags, opts watch.Options) error {
+		got = opts
+		return nil
+	}
+
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
-	root.SetArgs([]string{"watch"})
-
+	root.SetArgs(append([]string{"watch"}, args...))
 	err := root.Execute()
+	return got, err
+}
+
+func TestWatchCmd_DefaultsShowNodesAndPods(t *testing.T) {
+	opts, err := parseWatch(t)
+	require.NoError(t, err, "plain 'k8i watch' must work without flags")
+	assert.True(t, opts.Nodes)
+	assert.True(t, opts.Pods)
+	assert.False(t, opts.Events)
+	assert.Empty(t, opts.Namespaces)
+}
+
+func TestWatchCmd_ToggleValues(t *testing.T) {
+	tests := []struct {
+		args                []string
+		nodes, pods, events bool
+	}{
+		{[]string{"--nodes=disable"}, false, true, false},
+		{[]string{"--pods=disable"}, true, false, false},
+		{[]string{"--events=enable"}, true, true, true},
+		{[]string{"--events"}, true, true, true},
+		{[]string{"--nodes=enable", "--pods=enable"}, true, true, false},
+		{[]string{"--nodes=false", "--pods=off", "--events=yes"}, false, false, true},
+		{[]string{"--nodes=DISABLE"}, false, true, false},
+		{[]string{"--nodes=disabled", "--events=enabled"}, false, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			opts, err := parseWatch(t, tt.args...)
+			require.NoError(t, err)
+			assert.Equal(t, tt.nodes, opts.Nodes, "nodes")
+			assert.Equal(t, tt.pods, opts.Pods, "pods")
+			assert.Equal(t, tt.events, opts.Events, "events")
+		})
+	}
+}
+
+func TestWatchCmd_ToggleErrors(t *testing.T) {
+	_, err := parseWatch(t, "--nodes=maybe")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "enable at least one of --nodes, --pods, --events")
+	assert.Contains(t, err.Error(), `invalid value "maybe": expected enable or disable`)
+
+	_, err = parseWatch(t, "--nodes=disable", "--pods=disable")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "all sections are disabled")
+
+	_, err = parseWatch(t, "--nodes", "disable")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pass the value with '=', e.g. --nodes=disable or --pods=disable or --events=disable")
+
+	_, err = parseWatch(t, "something")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown argument "something"`)
+
+	_, err = parseWatch(t, "--pods=disable", "--namespaces", "default")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--namespaces has no effect with --pods=disable")
+}
+
+func TestToggleValue(t *testing.T) {
+	var b bool
+	v := newToggleValue(true, &b)
+	assert.True(t, b)
+	assert.Equal(t, "enable", v.String())
+	require.NoError(t, v.Set("disable"))
+	assert.False(t, b)
+	assert.Equal(t, "disable", v.String())
+	require.NoError(t, v.Set(" On "))
+	assert.True(t, b)
+	assert.Error(t, v.Set(""))
 }
 
 func TestWatchCmd_NamespacesFlagParsing(t *testing.T) {
 	root := NewRootCommand()
 	cmd, _, err := root.Find([]string{"watch"})
 	require.NoError(t, err)
-	require.NoError(t, cmd.ParseFlags([]string{"--pods", "--namespaces", "default,prod", "--namespaces", "kube-system"}))
+	require.NoError(t, cmd.ParseFlags([]string{"--namespaces", "default,prod", "--namespaces", "kube-system"}))
 
 	got, err := cmd.Flags().GetStringSlice("namespaces")
 	require.NoError(t, err)
@@ -93,7 +176,7 @@ func TestBuildWatchOptions_Errors(t *testing.T) {
 		{"namespaces without pods", func(f *watchFlags) {
 			f.nodes = true
 			f.namespaces = []string{"default"}
-		}, "--namespaces can only be used together with --pods"},
+		}, "--namespaces has no effect with --pods=disable"},
 		{"empty namespaces", func(f *watchFlags) {
 			f.pods = true
 			f.namespaces = []string{" ", ""}

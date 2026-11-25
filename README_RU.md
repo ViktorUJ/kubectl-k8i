@@ -415,7 +415,9 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
 ## Подкоманда watch
 
 `kubectl k8i watch` не завершается и обновляет экран каждые `--interval`, показывая только то, что требует
-внимания. Выход — `Ctrl+C`. Все секции **выключены по умолчанию**, нужно включить хотя бы одну.
+внимания. Выход — `Ctrl+C`. Секции переключаются через `--<секция>=enable` / `--<секция>=disable`:
+узлы и поды показываются по умолчанию, Warning-события по умолчанию выключены. `--events` без значения означает
+`--events=enable`. Значение передаётся через `=` (`--nodes=disable`, а не `--nodes disable`).
 
 - `--nodes` — узлы, у которых условие `Ready` не `True` (`NotReady` / `Unknown`), с активными pressure-условиями
   (`MemoryPressure`, `DiskPressure`, `PIDPressure`, `NetworkUnavailable`) и причиной/сообщением.
@@ -431,10 +433,10 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
 
 | Флаг | По умолчанию | Описание |
 |------|--------------|----------|
-| `--nodes` | `false` | Показывать узлы не в Ready |
-| `--pods` | `false` | Показывать поды, которые не Ready и не Completed |
-| `--events` | `false` | Показывать Warning-события кластера |
-| `--namespaces` | все | Namespace для `--pods` (через запятую или повтором флага). Требует `--pods` |
+| `--nodes` | `enable` | Показывать узлы не в Ready (`enable`/`disable`) |
+| `--pods` | `enable` | Показывать поды, которые не Ready и не Completed (`enable`/`disable`) |
+| `--events` | `disable` | Показывать Warning-события кластера (`enable`/`disable`) |
+| `--namespaces` | все | Namespace для подов (через запятую или повтором флага). Нельзя вместе с `--pods=disable` |
 | `--interval` | `5s` | Интервал обновления (минимум `1s`) |
 | `--events-since` | `15m` | Показывать только Warning-события за это окно (`0` — без ограничения) |
 | `--context` | текущий | Kubernetes-контекст |
@@ -443,20 +445,23 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
 ### Примеры watch
 
 ```bash
-# Следить за узлами не в Ready
-kubectl k8i watch --nodes
+# Узлы и поды не в Ready (по умолчанию)
+kubectl k8i watch --context my-cluster
 
-# Следить за проблемными подами во всех namespace
-kubectl k8i watch --pods
+# Только поды, без узлов
+kubectl k8i watch --nodes=disable
 
-# Следить за проблемными подами только в выбранных namespace
-kubectl k8i watch --pods --namespaces default,production
+# Только узлы, без подов
+kubectl k8i watch --pods=disable
 
-# Следить за всем, обновление каждые 10 секунд
-kubectl k8i watch --nodes --pods --events --interval 10s
+# Проблемные поды только в выбранных namespace
+kubectl k8i watch --namespaces default,production
 
-# Warning-события за последний час
-kubectl k8i watch --events --events-since 1h
+# Узлы, поды и Warning-события, обновление каждые 10 секунд
+kubectl k8i watch --events=enable --interval 10s
+
+# Только Warning-события за последний час
+kubectl k8i watch --nodes=disable --pods=disable --events=enable --events-since 1h
 ```
 
 ### Формат вывода watch
@@ -480,7 +485,14 @@ LAST SEEN  COUNT  NAMESPACE  OBJECT     REASON            MESSAGE
 1m         4      prod       Pod/api-1  FailedScheduling  0/10 nodes available
 ```
 
-В терминале экран очищается перед каждым обновлением; при перенаправлении вывода обновления дописываются в конец.
+В терминале экран перерисовывается на месте: переписываются только изменившиеся строки, поэтому имя пода
+или узла на неизменённой строке можно выделить и скопировать между обновлениями, а старые кадры не копятся
+в scrollback. Вывод обрезается по размеру терминала (последняя строка показывает, сколько строк скрыто).
+После `Ctrl+C` последний экран остаётся в терминале. При перенаправлении вывода обновления дописываются
+в конец без управляющих последовательностей.
+
+Внутренние логи client-go вида `Waited before sending request ... client-side throttling` — это не ошибки,
+и они не выводятся. Настоящие ошибки API показываются в секции `ERRORS`.
 
 ## Форматы вывода
 

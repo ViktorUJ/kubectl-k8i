@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// clearScreen moves the cursor home and clears the terminal.
-const clearScreen = "\033[H\033[2J"
-
 const (
 	// DefaultInterval is the refresh interval used when none is given.
 	DefaultInterval = 5 * time.Second
@@ -28,11 +25,15 @@ type Source interface {
 
 // RunConfig controls the refresh loop.
 type RunConfig struct {
-	Interval    time.Duration
-	ClearScreen bool             // clear the terminal before each refresh (TTY only)
-	Render      RenderConfig     // base render options
-	Now         func() time.Time // defaults to time.Now
-	Width       func() int       // re-detects terminal width on each refresh; nil keeps Render.TermWidth
+	Interval time.Duration
+	// Screen redraws the view in place on a terminal (only changed lines are
+	// rewritten). When false, each refresh is appended to the output.
+	Screen bool
+	Render RenderConfig     // base render options
+	Now    func() time.Time // defaults to time.Now
+	// Size re-detects the terminal width and height on each refresh
+	// (0 = unknown). nil keeps Render.TermWidth and no height limit.
+	Size func() (width, height int)
 	// CollectTimeout bounds a single refresh so a hanging API server cannot
 	// freeze the screen. <=0 uses DefaultCollectTimeout.
 	CollectTimeout time.Duration
@@ -60,6 +61,8 @@ func Run(ctx context.Context, src Source, opts Options, w io.Writer, cfg RunConf
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 
+	scr := newScreen(w)
+
 	for first := true; ; first = false {
 		select {
 		case <-ctx.Done():
@@ -74,21 +77,28 @@ func Run(ctx context.Context, src Source, opts Options, w io.Writer, cfg RunConf
 			return nil
 		}
 
-		if cfg.Width != nil {
-			rc.TermWidth = cfg.Width()
+		height := 0
+		if cfg.Size != nil {
+			rc.TermWidth, height = cfg.Size()
 		}
 
 		// Render into a buffer and write once to avoid flicker.
 		var buf bytes.Buffer
-		switch {
-		case cfg.ClearScreen:
-			buf.WriteString(clearScreen)
-		case !first:
-			buf.WriteString("\n")
-		}
 		RenderSnapshot(&buf, snap, rc)
-		if _, err := w.Write(buf.Bytes()); err != nil {
-			return err
+
+		if cfg.Screen {
+			if err := scr.Draw(buf.String(), rc.TermWidth, height); err != nil {
+				return err
+			}
+		} else {
+			if !first {
+				if _, err := io.WriteString(w, "\n"); err != nil {
+					return err
+				}
+			}
+			if _, err := w.Write(buf.Bytes()); err != nil {
+				return err
+			}
 		}
 
 		timer.Reset(interval)

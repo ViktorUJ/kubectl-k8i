@@ -405,7 +405,9 @@ kubectl k8i analyze --node ip-10-0-1-100 -o json
 ## Watch subcommand
 
 `kubectl k8i watch` keeps running and refreshes the screen every `--interval`, showing only what needs
-attention. Press `Ctrl+C` to exit. Every section is **off by default**; enable at least one of them.
+attention. Press `Ctrl+C` to exit. Sections are switched with `--<section>=enable` / `--<section>=disable`:
+nodes and pods are shown by default, Warning events are off by default. A bare `--events` means `--events=enable`.
+The value must be passed with `=` (`--nodes=disable`, not `--nodes disable`).
 
 - `--nodes`: nodes whose `Ready` condition is not `True` (`NotReady` / `Unknown`), with active pressure
   conditions (`MemoryPressure`, `DiskPressure`, `PIDPressure`, `NetworkUnavailable`) and the reason/message.
@@ -421,10 +423,10 @@ shown as `unavailable` (never as healthy), and the data is requested again on th
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--nodes` | `false` | Show nodes that are not Ready |
-| `--pods` | `false` | Show pods that are neither Ready nor Completed |
-| `--events` | `false` | Show cluster Warning events |
-| `--namespaces` | all | Namespaces to watch for `--pods` (comma-separated or repeatable). Requires `--pods` |
+| `--nodes` | `enable` | Show nodes that are not Ready (`enable`/`disable`) |
+| `--pods` | `enable` | Show pods that are neither Ready nor Completed (`enable`/`disable`) |
+| `--events` | `disable` | Show cluster Warning events (`enable`/`disable`) |
+| `--namespaces` | all | Namespaces to watch for pods (comma-separated or repeatable). Not allowed with `--pods=disable` |
 | `--interval` | `5s` | Refresh interval (minimum `1s`) |
 | `--events-since` | `15m` | Show only Warning events seen within this window (`0` = no limit) |
 | `--context` | current | Kubernetes context to use |
@@ -433,20 +435,23 @@ shown as `unavailable` (never as healthy), and the data is requested again on th
 ### Watch examples
 
 ```bash
-# Watch not-ready nodes
-kubectl k8i watch --nodes
+# Watch not-ready nodes and pods (default)
+kubectl k8i watch --context my-cluster
 
-# Watch not-ready pods in all namespaces
-kubectl k8i watch --pods
+# Only pods, without nodes
+kubectl k8i watch --nodes=disable
 
-# Watch not-ready pods only in selected namespaces
-kubectl k8i watch --pods --namespaces default,production
+# Only nodes, without pods
+kubectl k8i watch --pods=disable
 
-# Watch everything, refresh every 10 seconds
-kubectl k8i watch --nodes --pods --events --interval 10s
+# Not-ready pods only in selected namespaces
+kubectl k8i watch --namespaces default,production
 
-# Warning events from the last hour
-kubectl k8i watch --events --events-since 1h
+# Nodes, pods and Warning events, refresh every 10 seconds
+kubectl k8i watch --events=enable --interval 10s
+
+# Only Warning events from the last hour
+kubectl k8i watch --nodes=disable --pods=disable --events=enable --events-since 1h
 ```
 
 ### Watch output format
@@ -470,7 +475,13 @@ LAST SEEN  COUNT  NAMESPACE  OBJECT     REASON            MESSAGE
 1m         4      prod       Pod/api-1  FailedScheduling  0/10 nodes available
 ```
 
-On a terminal the screen is cleared before each refresh. When stdout is redirected, refreshes are appended.
+On a terminal the view is redrawn in place: only lines that changed are rewritten, so a pod or node name on
+an unchanged line can be selected and copied between refreshes, and old frames do not pile up in the scrollback.
+The output is clipped to the terminal size (a footer shows how many lines are hidden). After `Ctrl+C` the last
+screen stays in the terminal. When stdout is redirected, refreshes are appended without control sequences.
+
+Internal client-go log lines such as `Waited before sending request ... client-side throttling` are not errors
+and are not printed. Real API errors are shown in the `ERRORS` section.
 
 ## Output Formats
 

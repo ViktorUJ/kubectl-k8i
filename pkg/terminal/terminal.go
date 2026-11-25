@@ -17,6 +17,16 @@ func GetTerminalWidth(defaultWidth int) int {
 	return width
 }
 
+// GetTerminalSize returns the terminal width and height of stdout.
+// Returns the defaults if detection fails (e.g., stdout is piped to a file).
+func GetTerminalSize(defaultWidth, defaultHeight int) (int, int) {
+	width, height, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || width <= 0 || height <= 0 {
+		return defaultWidth, defaultHeight
+	}
+	return width, height
+}
+
 // IsTerminal returns true if the given file descriptor is a terminal.
 func IsTerminal(fd uintptr) bool {
 	return term.IsTerminal(int(fd))

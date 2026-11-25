@@ -74,34 +74,67 @@ func TestRun_RefreshesUntilCancelled(t *testing.T) {
 	assert.Contains(t, s, "all 1 nodes are Ready")
 	assert.Contains(t, s, "nodes: temporary failure", "errors are shown and the loop keeps running")
 	assert.Contains(t, s, "all 3 nodes are Ready")
-	assert.NotContains(t, s, clearScreen, "screen is not cleared when ClearScreen is false")
+	assert.NotContains(t, s, "\033[", "no terminal control sequences when Screen is false (piped output)")
 }
 
-func TestRun_ClearsScreenAndRedetectsWidth(t *testing.T) {
+func TestRun_ScreenModeRedrawsOnlyChangedLines(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	src := &fakeSource{stopAfter: 2, cancel: cancel}
-	widths := []int{40, 60}
-	var widthCalls int
+	// Same pods on every refresh, only the clock moves.
+	pods := []PodProblem{
+		{Namespace: "default", Name: "web-1", Ready: "0/1", Status: "CrashLoopBackOff", Node: "n1", Age: "5m"},
+		{Namespace: "prod", Name: "api-1", Ready: "0/1", Status: "Pending", Node: "<none>", Age: "2m"},
+	}
+	src := &fakeSource{stopAfter: 3, cancel: cancel, snapshot: func(int) Snapshot {
+		return Snapshot{Pods: pods, TotalPods: 10, NamespaceCount: 2}
+	}}
+	tick := 0
+	var out bytes.Buffer
+	err := Run(ctx, src, Options{Pods: true}, &out, RunConfig{
+		Interval: 10 * time.Millisecond,
+		Screen:   true,
+		Now: func() time.Time {
+			tick++
+			return refTime.Add(time.Duration(tick) * time.Second)
+		},
+		Size: func() (int, int) { return 100, 40 },
+	})
+	require.NoError(t, err)
+
+	s := out.String()
+	assert.Equal(t, 1, strings.Count(s, escClearScreen), "screen is cleared only once")
+	assert.Equal(t, 1, strings.Count(s, "web-1"), "unchanged pod rows are written once, not on every refresh")
+	assert.Equal(t, 1, strings.Count(s, "api-1"))
+	assert.Equal(t, 3, strings.Count(s, "k8i watch"), "the title line (clock) is rewritten on every refresh")
+}
+
+func TestRun_ScreenModeFullRedrawOnResize(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	src := &fakeSource{stopAfter: 3, cancel: cancel}
+	sizes := [][2]int{{40, 30}, {40, 30}, {60, 30}}
+	call := 0
 
 	var out bytes.Buffer
 	err := Run(ctx, src, Options{Nodes: true}, &out, RunConfig{
-		Interval:    10 * time.Millisecond,
-		ClearScreen: true,
-		Now:         func() time.Time { return refTime },
-		Width: func() int {
-			w := widths[min(widthCalls, len(widths)-1)]
-			widthCalls++
-			return w
+		Interval: 10 * time.Millisecond,
+		Screen:   true,
+		Now:      func() time.Time { return refTime },
+		Size: func() (int, int) {
+			sz := sizes[min(call, len(sizes)-1)]
+			call++
+			return sz[0], sz[1]
 		},
 	})
 	require.NoError(t, err)
 
-	screens := strings.Split(out.String(), clearScreen)
-	require.Len(t, screens, 3, "clear sequence precedes each of the 2 screens")
-	assert.Contains(t, screens[1], "\n"+strings.Repeat("=", 40)+"\n")
-	assert.Contains(t, screens[2], "\n"+strings.Repeat("=", 60)+"\n")
+	frames := strings.Split(out.String(), escClearScreen)
+	require.Len(t, frames, 3, "full clear on the first frame and after the resize only")
+	assert.Contains(t, frames[1], strings.Repeat("=", 40))
+	assert.NotContains(t, frames[1], strings.Repeat("=", 41))
+	assert.Contains(t, frames[2], strings.Repeat("=", 60))
 }
 
 func TestRun_AlreadyCancelled(t *testing.T) {

@@ -89,3 +89,13 @@ func TestNewColorConfig_AutoDetect(t *testing.T) {
 	// We just verify it doesn't panic and returns a valid config
 	assert.IsType(t, ColorConfig{}, cc)
 }
+
+func TestColorizeRedYellow(t *testing.T) {
+	on := ColorConfig{Enabled: true}
+	off := ColorConfig{Enabled: false}
+
+	assert.Equal(t, "\033[0;31mfail\033[0m", on.ColorizeRed("fail"))
+	assert.Equal(t, "\033[1;33mwarn\033[0m", on.ColorizeYellow("warn"))
+	assert.Equal(t, "fail", off.ColorizeRed("fail"))
+	assert.Equal(t, "warn", off.ColorizeYellow("warn"))
+}

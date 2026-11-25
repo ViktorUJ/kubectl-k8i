@@ -327,7 +327,7 @@ func generateAlphaString(t *rapid.T, length int, label string) string {
 	}
 	chars := make([]byte, length)
 	for i := 0; i < length; i++ {
-		chars[i] = byte(rapid.IntRange(97, 122).Draw(t, fmt.Sprintf("%s_char_%d", label, i)))
+		chars[i] = rapid.ByteRange('a', 'z').Draw(t, fmt.Sprintf("%s_char_%d", label, i))
 	}
 	return string(chars)
 }

@@ -216,8 +216,10 @@ func TestE2E_StandardOutput_MixedNodeTypes(t *testing.T) {
 	// Header row present
 	assert.Contains(t, out, "NODE")
 	assert.Contains(t, out, "PODS")
-	assert.Contains(t, out, "AUTOSCALER")
-	assert.Contains(t, out, "TAINTS")
+	assert.Contains(t, out, "CPU cores")
+	assert.Contains(t, out, "MEMORY GB")
+	assert.Contains(t, out, "Node info")
+	assert.Contains(t, out, "zone/pool/nodeclaim/age/taints")
 
 	// All non-fargate nodes present
 	assert.Contains(t, out, "karpenter-node-1")
@@ -229,10 +231,12 @@ func TestE2E_StandardOutput_MixedNodeTypes(t *testing.T) {
 	assert.NotContains(t, out, "fargate-")
 
 	// Separator line present
-	assert.Contains(t, out, "---")
+	assert.Contains(t, out, "====")
 
-	// Timestamp present
-	assert.Contains(t, out, "Data collected at:")
+	// Timestamp / filter / sort annotations are no longer rendered
+	assert.NotContains(t, out, "Data collected at:")
+	assert.NotContains(t, out, "Filter applied:")
+	assert.NotContains(t, out, "Sort applied:")
 }
 
 func TestE2E_FilterOutput(t *testing.T) {
@@ -248,7 +252,7 @@ func TestE2E_FilterOutput(t *testing.T) {
 	cfg.Filter = "ec2_type=spot"
 	out := renderToString(filtered, cfg)
 
-	assert.Contains(t, out, "Filter applied: ec2_type=spot")
+	assert.NotContains(t, out, "Filter applied:")
 	assert.Contains(t, out, "karpenter-node-1")
 	assert.NotContains(t, out, "spotinst-node-1")
 	assert.NotContains(t, out, "eks-node-1")
@@ -266,21 +270,26 @@ func TestE2E_SortOutput(t *testing.T) {
 	cfg.Sort = "cpu_load=desc"
 	out := renderToString(nodes, cfg)
 
-	assert.Contains(t, out, "Sort applied: cpu_load=desc")
+	assert.NotContains(t, out, "Sort applied:")
 
-	// Verify data rows appear in descending CPU load order
+	// Verify data rows appear in the same (descending CPU load) order as the sorted nodes
 	lines := strings.Split(out, "\n")
 	var dataNodeNames []string
 	for _, line := range lines {
 		for _, n := range nodes {
-			if strings.Contains(line, n.Name) {
+			if strings.HasPrefix(line, n.Name) {
 				dataNodeNames = append(dataNodeNames, n.Name)
 				break
 			}
 		}
 	}
-	// First data node should have highest CPU load
-	require.NotEmpty(t, dataNodeNames)
+	require.Len(t, dataNodeNames, len(nodes))
+	for i, n := range nodes {
+		assert.Equal(t, n.Name, dataNodeNames[i])
+		if i > 0 {
+			assert.GreaterOrEqual(t, nodes[i-1].CPULoadPercent, n.CPULoadPercent)
+		}
+	}
 }
 
 func TestE2E_GroupByTaint(t *testing.T) {
@@ -507,7 +516,7 @@ func TestE2E_FilterAutoscaler_Karpenter(t *testing.T) {
 	cfg.Filter = "autoscaler=karpenter"
 	out := renderToString(filtered, cfg)
 
-	assert.Contains(t, out, "Filter applied: autoscaler=karpenter")
+	assert.NotContains(t, out, "Filter applied:")
 	assert.Contains(t, out, "karpenter-node-1")
 	assert.NotContains(t, out, "spotinst-node-1")
 	assert.NotContains(t, out, "eks-node-1")
@@ -526,7 +535,7 @@ func TestE2E_SortAutoscaler_Asc(t *testing.T) {
 	cfg.Sort = "autoscaler=asc"
 	out := renderToString(nodes, cfg)
 
-	assert.Contains(t, out, "Sort applied: autoscaler=asc")
+	assert.NotContains(t, out, "Sort applied:")
 
 	// Verify ascending order of autoscaler values in data rows
 	for i := 0; i < len(nodes)-1; i++ {

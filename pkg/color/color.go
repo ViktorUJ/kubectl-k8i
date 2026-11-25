@@ -68,6 +68,22 @@ func (c ColorConfig) ColorizeGreen(s string) string {
 	return colorGreen + s + colorReset
 }
 
+// ColorizeYellow wraps a string in yellow ANSI codes. No-op when colors are disabled.
+func (c ColorConfig) ColorizeYellow(s string) string {
+	if !c.Enabled {
+		return s
+	}
+	return colorYellow + s + colorReset
+}
+
+// ColorizeRed wraps a string in red ANSI codes. No-op when colors are disabled.
+func (c ColorConfig) ColorizeRed(s string) string {
+	if !c.Enabled {
+		return s
+	}
+	return colorRed + s + colorReset
+}
+
 // ColorizeRatio applies ANSI color to a string based on the ratio between two values.
 // Used to highlight CPU overcommit (limits/requests or limits/capacity).
 // Green (ratio ≤ 5), Yellow (5 < ratio ≤ 10), Red (ratio > 10).

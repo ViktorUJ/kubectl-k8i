@@ -194,7 +194,7 @@ func TestProperty23_TaintSortKeyOrdering(t *testing.T) {
 
 		// Verify lexicographic ordering is consistent
 		if keyA < keyB {
-			if !(keyA <= keyB) {
+			if keyA > keyB {
 				t.Fatalf("Ordering inconsistency: keyA=%q < keyB=%q", keyA, keyB)
 			}
 		}

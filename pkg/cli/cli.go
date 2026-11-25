@@ -67,6 +67,9 @@ Subcommands:
   analyze   Show all workloads running on selected nodes with aggregated
             CPU/memory requests, limits, and usage. Select nodes by name,
             label selector, or taint. Use --exclude-namespace to reduce noise.
+  watch     Keep running and continuously show not-ready nodes (--nodes),
+            pods that are neither Ready nor Completed (--pods, --namespaces),
+            and cluster Warning events (--events).
 
 Filter format:
   --filter 'attribute=value' where attribute can be:
@@ -245,6 +248,7 @@ Shell completion:
 	// Add completion subcommand.
 	cmd.AddCommand(newCompletionCmd())
 	cmd.AddCommand(newAnalyzeCmd())
+	cmd.AddCommand(newWatchCmd())
 
 	return cmd
 }
